@@ -1,0 +1,1644 @@
+---
+title: "GSEA comparison scClone2DR model vs. dual bulk"
+subtitle: "Comparison of distribution of enrichment scores. GSEA on delta LOR values. Selection of best clone, or best drug per clone."
+author: "Anne Bertolini"
+
+format: html
+date: last-modified
+code-overflow: wrap
+lightbox: true
+
+#code-block-border-left: "#31BAE9"
+editor: visual
+embed-resources: true # makes html document quite large
+
+#abstract-title:
+#abstract:
+tidy: true
+
+toc: true # [false, true] Include a table of contents in the document
+toc-depth: 6 # Least significant section header to include in table of contents
+toc-expand: 3
+
+number-sections: false # [false, true] Should section headings be numbered?
+number-depth: 6 # {html, pdf, docx, revealjs, beamer, epub} Least significant section header to be numbered
+
+fig-show: asis
+code-fold: true
+code-summary: ""
+---
+
+------------------------------------------------------------------------
+
+## Overview
+
+Compare the GSEA results from the delta LOR values and the gene sets per drug that are all genes that are associated with a drug in the CIViC database.
+
+The delta LOR values are either from the scClone2DR model or from the bulk model.
+
+Hypothesis: the scClone2DR model should be better able to highlight important genes for a drug. Therefore, it should have higher (above 0) NES scores from the GSEA.
+
+Assumption: The genes linked to a drug in the CIViC database are more important for the success of the drug than another random gene.
+
+NOTE: One difference between the two models are the data points.
+
+-   the bulk model discriminates between two clones, the non-malignant cells (0) and the tumour cells (1). With the delta LOR only the results from clone 1 are considered (relative to clone 0)
+
+-   the scClone2DR model is based on the scatrex clones where clone 0 can represent the non-malignant cells (if available in a sample). There can be more than 1 clone for tumour cells.
+
+Only gene sets with minimum 5 genes are used for the final comparison.
+
+#### Selection
+
+To make the scenario for the model more realistic, do not compare all values, but only a selection. We do not expect all values to be of interest, e.g., not all drugs are expected give a strong positive signal for all samples, even if the model picks up everything meaningful.
+
+New plots include
+
+-   **Option 1)** After the GSEA analysis, select (and plot) one clone per sample. This is only relevant for the scClone2DR publication model, because there can be several malignant clones. The dual bulk model has one malignant clone per sample.\
+    With this, the same number of clones is plotted for scClone2DR publication model and dual bulk model, respectively.\
+    Select clone with best GSEA score.
+
+-   **Option 2)** Select only one drug and clone per sample. Select drug and clone that have highest GSEA score. This has a slightly different effect on dual bulk model and scClone2DR publication model. For the publication model only one clone per sample is selected (there can be several malignant clones). For the dual bulk model there is only one malignant clone per sample, and for each sample the best drug is selected.\
+    The same number of clones is plotted for scClone2DR publication model and dual bulk model, respectively.\
+    Visualisation is a violin plot, with one dot per sample.
+
+-   **Option 3)** Select only one drug per sample, but keep all clones in the analysis, to show intra-sample heterogeneity. The drug is selected by the overall best GSEA score per sample. Similar to option 2), but showing all clones.\
+    The number of data points for the dual bulk models is the same as number of samples, for the scClone2DR publication model a data point per malignant clone is shown. Therefore, the number of data points differs.
+
+-   **Option 4)** Select the best drug per clone. For the dual bulk model this shows the same data as in Option 2) and 3). For the scClone2DR publication model, for each malignant clone the best drug is chosen independently.\
+    The number of data points for the dual bulk models is the same as number of samples, for the scClone2DR publication model a data point per malignant clone is shown. Therefore, the number of data points differs.
+
+------------------------------------------------------------------------
+
+## Load packages
+
+```{r}
+#| label: load-packages
+#| output: false
+
+library(optparse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(DT)
+library(RColorBrewer)
+library(patchwork)
+library(stringr)
+library(rstatix)
+```
+
+------------------------------------------------------------------------
+
+## Input data, output directory
+
+```{r}
+#| label: define-input-output-directories
+# Sys.setenv(WORKING_DIRECTORY = "2023_cb_beerenwinkel_SDSC/scRNA/08_gsea/2026-02-12_gsea_delta_lor_comparison_selection_dual_bulk/")
+
+working_directory <- Sys.getenv("WORKING_DIRECTORY")
+input <- paste0(working_directory, "input/")
+output <- paste0(working_directory, "output/")
+```
+
+```{r}
+# other user input
+my_indication <- "melanoma"
+```
+
+Read in general input files and tables.
+
+```{r}
+#| label: read-general
+
+# all genes in civic
+#table_civic <- read.table(
+#  paste0(input, "01-Apr-2025_per_drug_gene_lists.tsv"),
+#  header = F,
+#  sep = "\t"
+#)
+
+# Oncogenes OncoKB
+#table_onco <- read.table(paste0(input, "cancerGeneList.tsv"),
+#                         header = T, sep = "\t")
+
+# gene annotation file
+#gene_file <- paste0(input, "Homo_sapiens.GRCh38.111.gene_info.csv")
+#gene_info <- read.delim(file = gene_file, header = TRUE, sep = "," )
+
+
+# Melanoma drug description table (file)
+mel_drug_table <- paste0(input, "2024-06_drscs_drug_categories.txt")
+
+# drugs
+table_drugs <- read.delim(file = mel_drug_table, header = TRUE, sep = "\t") %>%
+  # rename column to "drug"
+  dplyr::rename(drug = orig.name)
+
+table_drugs2 <- bind_rows(table_drugs,
+                          table_drugs %>%
+                            filter(drug == "MLN2480") %>%
+                            mutate(drug = "Mln2480"))
+table_drugs <- table_drugs2
+
+# remove drug combinations
+table_drugs <- table_drugs[!grepl("\\|",x = table_drugs$drug), 1:4]
+```
+
+```{r}
+#| label: read-input
+#| output: false
+#| code-fold: true
+#| code-summary: "Code to read input files."
+
+# input files
+scClone2DR_gsea_file <- paste0(input,
+                         "main_GSEA_delta_LOR_min5.tsv")
+dual_bulk_gsea_file <- paste0(input,
+                         "dual_bulk_GSEA_delta_LOR_min5.tsv")
+
+# read in tables
+scClone2DR_gsea <- read.table(scClone2DR_gsea_file, header = T, sep = "\t" ) %>%
+  mutate(model = if_else(model == "main", "scClone2DR", model))
+
+dual_bulk_gsea <- read.table(dual_bulk_gsea_file, header = T, sep = "\t" )
+
+gsea <- rbind(scClone2DR_gsea, dual_bulk_gsea) %>%
+  # have sample column with sample ID
+  mutate(sample = stringr::str_extract(clone, "^[^_]+"))
+```
+
+## Density plots
+
+```{r}
+#| label: fig-comparison
+#| fig-width: 8
+#| fig-height: 5
+
+# plot distribution of gene set score levels
+
+min_5 <- ggplot(gsea, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  facet_wrap(~pathway) +
+  ggtitle("Distribution of GSEA score") +
+  geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_min_5_distribution_scClone2DR_vs_dual_bulk_jitter.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+
+min_5 <- ggplot(gsea, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  facet_wrap(~pathway) +
+  ggtitle("Distribution of GSEA score")
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_min_5_distribution_scClone2DR_vs_dual_bulk.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+```
+
+## Violin plots
+
+Plot single violin plots.
+
+```{r}
+# violin plot per drug showing both, scClone2DR and dual bulk model
+all_classes <- unique(table_drugs$drug_target_group)
+pal_named <- setNames(brewer.pal(length(all_classes), "Paired")[seq_along(all_classes)], all_classes)
+
+# start list for all violin plots (one per drug)
+list_all_drugs_violin <- list()
+
+for (my_drug in unique(gsea$drug_delta_LOR)) {
+  #my_drug = "Cisplatin"
+  my_class <- table_drugs[table_drugs$drug == my_drug, "drug_target_group"]
+  
+  my_data <- gsea %>%
+    filter(drug_delta_LOR == my_drug)
+  
+  title_col <- pal_named[[my_class]]
+  
+  my_p <- ggplot(my_data,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    ggtitle(my_drug) +
+    ylab("NES GSEA") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, size = 0.5) +
+    theme(plot.title = element_text(color = title_col,
+                                    face = "bold",
+                                    size = 17),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 12))
+  
+  list_all_drugs_violin[[my_drug]] <- my_p
+}
+```
+
+Combine single violin plots.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 20
+#| fig-height: 10
+
+# combine violin plots
+
+combined_violin <- patchwork::wrap_plots(list_all_drugs_violin,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Violin plots of all gene sets',
+  subtitle = "Each violin shows GSEA NES score calculated on delta LOR for each clone and one drug's CIViC gene set)."
+)
+print(combined_violin)
+
+filename <- paste0(output,
+                   my_indication,
+                   "_civic_oncokb_genes_delta_LOR_GSEA_comparison_violin_top5.pdf")
+
+ggsave(filename = filename, plot = combined_violin, width = 55, height = 30, units = "cm")
+```
+
+## Dot plot
+
+Plot single dot plots.
+
+```{r}
+# reformat results for plotting
+
+dual_bulk_anchor <- gsea %>%
+  filter(model == "dual_bulk")
+
+
+seg_df <- gsea %>%
+  filter(model == "scClone2DR") %>%
+  left_join(dual_bulk_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"),
+            relationship = "many-to-many")
+```
+
+```{r}
+# dot plot per drug showing both, scClone2DR and dual_bulk model
+all_classes <- unique(table_drugs$drug_target_group)
+pal_named <- setNames(brewer.pal(length(all_classes), "Paired")[seq_along(all_classes)], all_classes)
+
+# start list for all violin plots (one per drug)
+list_all_drugs_dot <- list()
+
+for (my_drug in unique(gsea$drug_delta_LOR)) {
+  #my_drug = "Cisplatin"
+  my_class <- table_drugs[table_drugs$drug == my_drug, "drug_target_group"]
+  
+  my_anchor <- gsea %>%
+    filter(drug_delta_LOR == my_drug)  %>%
+    filter(model == "dual_bulk")
+  
+  seg_df <- gsea %>%
+    filter(drug_delta_LOR == my_drug)  %>%
+    filter(model == "scClone2DR") %>%
+    left_join(my_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"))
+
+  title_col <- pal_named[[my_class]]
+  
+  p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  geom_point(
+    alpha = 0.7,
+    size = 1
+  ) +
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)",
+    title = my_drug
+  ) +
+  theme(plot.title = element_text(color = title_col,
+                                    face = "bold",
+                                    size = 17),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 12))
+  p_scatter
+
+  list_all_drugs_dot[[my_drug]] <- p_scatter
+}
+```
+
+Combine single scatter plots.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 20
+#| fig-height: 10
+
+# combine violin plots
+
+combined_violin <- patchwork::wrap_plots(list_all_drugs_dot,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Scatter plots of all gene sets',
+  subtitle = "Each scatter plot shows GSEA NES score calculated on delta LOR for each clone and one drug's CIViC gene set)."
+)
+print(combined_violin)
+
+filename <- paste0(output,
+                   my_indication,
+                   "_civic_oncokb_genes_delta_LOR_GSEA_comparison_scatter_top5.pdf")
+
+ggsave(filename = filename, plot = combined_violin, width = 55, height = 30, units = "cm")
+```
+
+## Wilcoxon test
+
+Test if the NES scores of the scClone2DR model are different from those of the dual_bulk model.
+
+```{r}
+gsea$model <- factor(gsea$model, levels = c("scClone2DR", "dual_bulk"))
+```
+
+Level 1 for Wilcoxon test: `{r} levels(gsea$model)[1]`
+
+Level 2 for Wilcoxon test: `{r} levels(gsea$model)[2]`
+
+If p-value is high: no statistical support for differences between the two groups.
+
+```{r}
+#| label: two-sided-wilcox-test
+#| warning: false
+#| message: false
+
+wilcoxon_results <- gsea %>%
+  filter(size >= 5) %>%
+  group_by(drug_delta_LOR) %>%
+  group_modify(~{
+    d <- .x
+    
+    test <- broom::tidy(wilcox.test(NES ~ model, data = d, exact = FALSE, alternative = "two.sided"))
+    eff  <- rstatix::wilcox_effsize(d, NES ~ model) %>% select(effsize, magnitude)
+    dir <- median(d$NES[d$model == "scClone2DR"], na.rm = TRUE) -
+      median(d$NES[d$model == "dual_bulk"], na.rm = TRUE)
+    
+    bind_cols(test, eff) %>%
+      mutate(
+        median_diff_treated_minus_control = dir,
+        effsize_signed = sign(dir) * effsize
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(p_adj = p.adjust(p.value, method = "BH")) %>%
+  arrange(p_adj) %>%
+  select(-method)
+
+# give out to notebook
+# or with package DT
+wilcoxon_results %>%
+  mutate(across(where(is.numeric), ~ round(.x, 7))) %>%
+datatable(
+  rownames = FALSE,
+  extensions = c("Scroller", "FixedColumns", "Buttons", "FixedHeader"),
+  options = list(
+    dom = "Bfrtip",
+    buttons = c("copy", "csv", "excel"),
+    deferRender = TRUE,          # fast rendering for big tables
+    scrollY = "600px",           # vertical scroller
+    scrollX = TRUE,              # horizontal scroller
+    scroller = TRUE,
+    pageLength = 25,
+    lengthMenu = c(10, 25, 50, 100),
+    fixedColumns = list(leftColumns = 1),  # fix first column
+    fixedHeader = TRUE
+  ),
+  class = "stripe hover compact"
+) %>%
+  formatStyle(
+    columns = names(wilcoxon_results),
+    whiteSpace = "normal",
+    wordWrap = "break-word"
+  )
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_comparison_wilcoxon_two_sided.tsv")
+write.table(wilcoxon_results, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+------------------------------------------------------------------------
+
+## Selections
+
+### **Option 1)**
+
+Select best performing clone per sample (scClone2DR).
+
+Do this for each drug, and show drugs as before.
+
+```{r}
+scClone2DR_gsea_opt_1 <- scClone2DR_gsea %>%
+  # have sample column with sample ID
+  mutate(sample = stringr::str_extract(clone, "^[^_]+")) %>%
+  # group by both, sample ID and drug name
+  group_by(sample, drug_delta_LOR) %>%
+  # select and keep one row per group (with highest NES value)
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  # discard sample ID column
+  select(-sample)
+
+gsea_opt_1 <- rbind(scClone2DR_gsea_opt_1, dual_bulk_gsea) %>%
+  # have sample column with sample ID
+  mutate(sample = stringr::str_extract(clone, "^[^_]+"))
+```
+
+```{r}
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_1_comparison.tsv")
+write.table(gsea_opt_1, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+#### Density plot
+
+```{r}
+#| label: fig-density
+#| fig-width: 8
+#| fig-height: 5
+
+# plot distribution of gene set score levels
+
+min_5 <- ggplot(gsea_opt_1, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  facet_wrap(~pathway) +
+  ggtitle("Distribution of GSEA score, selection opt_1") +
+  geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_1_min_5_distribution_scClone2DR_vs_dual_bulk_jitter.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+
+min_5 <- ggplot(gsea_opt_1, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  facet_wrap(~pathway) +
+  ggtitle("Distribution of GSEA score, selection opt_1")
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_1_min_5_distribution_scClone2DR_vs_dual_bulk.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+```
+
+#### Violin plots
+
+```{r}
+# start list for all violin plots (one per drug)
+list_all_drugs_violin <- list()
+
+for (my_drug in unique(gsea_opt_1$drug_delta_LOR)) {
+  #my_drug = "Cisplatin"
+  my_class <- table_drugs[table_drugs$drug == my_drug, "drug_target_group"]
+  
+  my_data <- gsea_opt_1 %>%
+    filter(drug_delta_LOR == my_drug)
+  
+  title_col <- pal_named[[my_class]]
+  
+  my_p <- ggplot(my_data,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    ggtitle(my_drug) +
+    ylab("NES GSEA") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, size = 0.5) +
+    theme(plot.title = element_text(color = title_col, face = "bold", size = 17),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 12))
+  
+  list_all_drugs_violin[[my_drug]] <- my_p
+}
+```
+
+Combine single violin plots.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 20
+#| fig-height: 10
+
+# combine violin plots
+
+combined_violin <- patchwork::wrap_plots(list_all_drugs_violin,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Violin plots of all gene sets',
+  subtitle = "Each violin shows GSEA NES score calculated on delta LOR for a clone and one drug's CIViC gene set).
+scClone2DR model clones: selected one per sample according to opt_1, best GSEA score"
+)
+print(combined_violin)
+
+filename <- paste0(output,
+                   my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_1_comparison_violin_top5.pdf")
+
+ggsave(filename = filename, plot = combined_violin, width = 55, height = 30, units = "cm")
+```
+
+Violin plots with lines connecting the data points from the different models of the same sample.
+
+```{r}
+pj <- position_jitterdodge(jitter.width=0,
+                           jitter.height = 0,
+                           dodge.width = 0.75,
+                           seed=9)
+```
+
+```{r}
+
+# start list for all violin plots (one per drug)
+list_all_drugs_violin <- list()
+
+for (my_drug in unique(gsea_opt_1$drug_delta_LOR)) {
+  #my_drug = "Cisplatin"
+  my_class <- table_drugs[table_drugs$drug == my_drug, "drug_target_group"]
+  
+  my_data <- gsea_opt_1 %>%
+    filter(drug_delta_LOR == my_drug)
+  
+  title_col <- pal_named[[my_class]]
+  
+  my_p <- ggplot(my_data,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    ggtitle(my_drug) +
+    ylab("NES GSEA") +
+    theme(plot.title = element_text(color = title_col, face = "bold", size = 17),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 12))  +
+    geom_point(aes(group = sample),
+               position = pj) +
+    geom_line(aes(group = sample),
+              position = pj,
+              linewidth = .2)
+
+  list_all_drugs_violin[[my_drug]] <- my_p
+}
+```
+
+Combine single violin plots with connecting lines.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 20
+#| fig-height: 10
+
+# combine violin plots
+
+combined_violin <- patchwork::wrap_plots(list_all_drugs_violin,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Violin plots of all gene sets',
+  subtitle = "Each violin shows GSEA NES score calculated on delta LOR for a clone and one drug's CIViC gene set).
+scClone2DR model clones: selected one per sample according to opt_1, best GSEA score"
+)
+print(combined_violin)
+
+filename <- paste0(output,
+                   my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_1_comparison_violin_top5_connecting_lines.pdf")
+
+ggsave(filename = filename, plot = combined_violin, width = 55, height = 30, units = "cm")
+```
+
+#### Dot plot
+
+Plot single dot plots.
+
+```{r}
+# reformat results for plotting
+
+dual_bulk_anchor <- gsea_opt_1 %>%
+  filter(model == "dual_bulk")
+
+
+seg_df <- gsea_opt_1 %>%
+  filter(model == "scClone2DR") %>%
+  left_join(dual_bulk_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"),
+            relationship = "many-to-many")
+```
+
+```{r}
+# dot plot per drug showing both, scClone2DR and dual_bulk model
+all_classes <- unique(table_drugs$drug_target_group)
+pal_named <- setNames(brewer.pal(length(all_classes), "Paired")[seq_along(all_classes)], all_classes)
+
+# start list for all violin plots (one per drug)
+list_all_drugs_dot <- list()
+
+for (my_drug in unique(gsea_opt_1$drug_delta_LOR)) {
+  #my_drug = "Cisplatin"
+  my_class <- table_drugs[table_drugs$drug == my_drug, "drug_target_group"]
+  
+  my_anchor <- gsea_opt_1 %>%
+    filter(drug_delta_LOR == my_drug)  %>%
+    filter(model == "dual_bulk")
+  
+  seg_df <- gsea_opt_1 %>%
+    filter(drug_delta_LOR == my_drug)  %>%
+    filter(model == "scClone2DR") %>%
+    left_join(my_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"))
+
+  title_col <- pal_named[[my_class]]
+  
+  p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  geom_point(
+    alpha = 0.7,
+    size = 1
+  ) +
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)",
+    title = my_drug
+  ) +
+  theme(plot.title = element_text(color = title_col,
+                                    face = "bold",
+                                    size = 17),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 12))
+  p_scatter
+
+  list_all_drugs_dot[[my_drug]] <- p_scatter
+}
+```
+
+Combine single scatter plots.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 20
+#| fig-height: 10
+
+# combine violin plots
+
+combined_violin <- patchwork::wrap_plots(list_all_drugs_dot,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Scatter plots of all gene sets',
+  subtitle = "Each scatter plot shows GSEA NES score calculated on delta LOR for one clone and one drug's CIViC gene set, opt_1)."
+)
+print(combined_violin)
+
+filename <- paste0(output,
+                   my_indication,
+                   "_civic_oncokb_genes_delta_LOR_GSEA_comparison_scatter_top5.pdf")
+
+ggsave(filename = filename, plot = combined_violin, width = 55, height = 30, units = "cm")
+```
+
+#### Wilcoxon test
+
+Test if the NES scores of the scClone2DR model are different from those of the dual_bulk model.
+
+```{r}
+gsea_opt_1$model <- factor(gsea_opt_1$model, levels = c("scClone2DR", "dual_bulk"))
+```
+
+Level 1 for Wilcoxon test: `{r} levels(gsea_opt_1$model)[1]`
+
+Level 2 for Wilcoxon test: `{r} levels(gsea_opt_1$model)[2]`
+
+If p-value is high: no statistical evidence found that values are different between the groups.
+
+```{r}
+#| label: tbl-two-sided-wilcox-test-opt-1
+#| tbl-cap: "Wilcoxon opt_1"
+
+wilcoxon_results <- gsea_opt_1 %>%
+  filter(size >= 5) %>%
+  group_by(drug_delta_LOR) %>%
+  group_modify(~{
+    d <- .x
+    
+    test <- broom::tidy(wilcox.test(NES ~ model, data = d, exact = FALSE, alternative = "two.sided"))
+    eff  <- rstatix::wilcox_effsize(d, NES ~ model) %>% select(effsize, magnitude)
+    dir <- median(d$NES[d$model == "scClone2DR"], na.rm = TRUE) -
+      median(d$NES[d$model == "dual_bulk"], na.rm = TRUE)
+    
+    bind_cols(test, eff) %>%
+      mutate(
+        median_diff_treated_minus_control = dir,
+        effsize_signed = sign(dir) * effsize
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(p_adj = p.adjust(p.value, method = "BH")) %>%
+  arrange(p_adj) %>%
+  select(-method)
+
+# give out to notebook
+# or with package DT
+wilcoxon_results %>%
+  mutate(across(where(is.numeric), ~ round(.x, 7))) %>%
+datatable(
+  rownames = FALSE,
+  extensions = c("Scroller", "FixedColumns", "Buttons", "FixedHeader"),
+  options = list(
+    dom = "Bfrtip",
+    buttons = c("copy", "csv", "excel"),
+    deferRender = TRUE,          # fast rendering for big tables
+    scrollY = "600px",           # vertical scroller
+    scrollX = TRUE,              # horizontal scroller
+    scroller = TRUE,
+    pageLength = 25,
+    lengthMenu = c(10, 25, 50, 100),
+    fixedColumns = list(leftColumns = 1),  # fix first column
+    fixedHeader = TRUE
+  ),
+  class = "stripe hover compact"
+) %>%
+  formatStyle(
+    columns = names(wilcoxon_results),
+    whiteSpace = "normal",
+    wordWrap = "break-word"
+  )
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_1_comparison_wilcoxon_two_sided.tsv")
+write.table(wilcoxon_results, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+### **Option 2)**
+
+Retain only best drug and the best clone per sample.
+
+Select based on GSEA result.
+
+Number of data points is the same for scClone2DR and dual_bulk model (one data point per sample).
+
+```{r}
+# from scClone2DR model GSEA results: select clone and drug with highest score
+scClone2DR_gsea_opt_2 <- scClone2DR_gsea %>%
+  # have sample column with sample ID
+  mutate(sample = str_extract(clone, "^[^_]+")) %>%
+  # select best value per clone
+  group_by(clone) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  # from the best clone values, select best value per sample
+  group_by(sample) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(-sample)
+
+# from dual_bulk model GSEA results: select drug with highest score
+dual_bulk_gsea_opt_2 <- dual_bulk_gsea %>%
+  # select best value per clone (sample)
+  group_by(clone) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+gsea_opt_2 <- rbind(scClone2DR_gsea_opt_2, dual_bulk_gsea_opt_2) %>%
+  # have sample column with sample ID
+  mutate(sample = str_extract(clone, "^[^_]+"))
+```
+
+```{r}
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_2_comparison.tsv")
+write.table(gsea_opt_2, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+#### Density plots
+
+```{r}
+#| label: fig-density-opt-2
+#| fig-width: 6
+#| fig-height: 4
+
+# plot distribution of gene set score levels
+
+min_5 <- ggplot(gsea_opt_2, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best clone and drug per sample, opt_2") +
+  geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_2_min_5_distribution_scClone2DR_vs_dual_bulk_jitter.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+
+min_5 <- ggplot(gsea_opt_2, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best clone and drug per sample, opt_2")
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_2_min_5_distribution_scClone2DR_vs_dual_bulk.pdf")
+ggsave(min_5, filename = filename, width = 6, height = 4)
+```
+
+#### Violin plot
+
+```{r}
+#| label: fig-violin-opt-2
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_2,
+         aes(x = model,
+             y = NES))+
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    ggtitle("Best clone and drug per sample (GSEA score), opt_2") +
+    ylab("NES GSEA") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, size = 0.5)
+
+print(my_p)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_2_min_5_violin_scClone2DR_vs_dual_bulk.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+```{r}
+#| label: fig-violin-opt-2-lines
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_2,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    ggtitle("Best clone and drug per sample (GSEA score), opt_2") +
+    ylab("NES GSEA") +
+    geom_point(aes(group = sample),
+               position = pj) +
+    geom_line(aes(group = sample),
+              position = pj,
+              linewidth = .2)
+
+print(my_p)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_2_min_5_violin_scClone2DR_vs_dual_bulk_connecting_lines.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+#### Dot plot
+
+Plot single dot plots.
+
+```{r}
+# reformat results for plotting
+
+dual_bulk_anchor <- gsea_opt_2 %>%
+  filter(model == "dual_bulk")
+
+seg_df <- gsea_opt_2 %>%
+  filter(model == "scClone2DR") %>%
+  left_join(dual_bulk_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"))
+```
+
+```{r}
+# colour palette for the drugs
+cols_dark2 <- brewer.pal(8, "Dark2")
+cols_set2  <- brewer.pal(8, "Set2")
+# make sure 17 distinguishable colours available
+cols_combined <- c(cols_dark2, cols_set2, "mediumpurple")
+cols_combined[cols_combined == "#66C2A5"] <- "red3"
+cols_combined[cols_combined == "#D95F02"] <- "royalblue"
+cols_combined[cols_combined == "#E5C494"] <- "turquoise3"
+
+# have drugs to give as names to the colour palette
+# make sure all drugs are included!
+my_drugs <- sort(unique(gsea$drug_delta_LOR))
+names(cols_combined) <- my_drugs
+```
+
+```{r}
+#| label: fig-dot-opt-2-lines
+#| fig-width: 8
+#| fig-height: 5
+
+p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  scale_fill_manual(values = cols_combined) +
+  scale_colour_manual(values = cols_combined) +
+  geom_point(
+    alpha = 0.7, 
+    size = 4,
+    shape = 21,
+    stroke = 2,   # <-- THIS controls the outline thickness
+    aes(fill = drug_delta_LOR.scClone2DR,  # interior colour
+      colour = drug_delta_LOR.dual_bulk          # outline colour
+      )
+  ) +
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)"
+  ) +
+  theme(axis.title = element_text(size = 10),
+        axis.text  = element_text(size = 9)) + 
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  coord_fixed(ratio = 1) +
+  guides(
+    fill   = guide_legend(ncol = 2, order = 1),
+    colour = guide_legend(ncol = 2, order = 2)
+  ) +
+  labs(fill   = "Best drug scClone2DR",
+       colour = "Best drug dual_bulk")
+
+print(p_scatter)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_2_min_5_scatter_scClone2DR_vs_dual_bulk.pdf")
+ggsave(p_scatter, filename = filename, width = 8, height = 5)
+```
+
+#### Wilcoxon test
+
+```{r}
+#| label: two-sided-wilcox-test-opt-2
+
+gsea_opt_2$model <- factor(gsea_opt_2$model, levels = c("scClone2DR", "dual_bulk"))
+```
+
+Level 1 for Wilcoxon test: `{r} levels(gsea_opt_2$model)[1]`
+
+Level 2 for Wilcoxon test: `{r} levels(gsea_opt_2$model)[2]`
+
+If p-value is high: no statistical evidence found that values in group 1 are different than in group 2.
+
+```{r}
+#| label: tbl-two-sided-wilcox-test-opt-2
+#| tbl-cap: "Wilcoxon opt_2"
+
+wilcoxon_results_opt_2 <- wilcox.test(
+  NES ~ model,
+  data = gsea_opt_2,
+  exact = FALSE,
+  alternative = "two.sided"
+) %>%
+  broom::tidy()
+
+# calculate effect size
+eff  <- rstatix::wilcox_effsize(gsea_opt_2, NES ~ model)
+# estimate direction of effect
+dir <- median(gsea_opt_2$NES[gsea_opt_2$model == "scClone2DR"], na.rm = TRUE) -
+      median(gsea_opt_2$NES[gsea_opt_2$model == "dual_bulk"], na.rm = TRUE)
+
+wilcoxon_results_eff_opt_2 <- bind_cols(wilcoxon_results_opt_2, eff) %>%
+      mutate(
+        median_diff_treated_minus_control = dir,
+        effsize_signed = sign(dir) * effsize
+      )
+
+wilcoxon_results_eff_opt_2 %>%
+  select(-method) %>%
+  kable()
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_2_comparison_wilcoxon_two_sided.tsv")
+write.table(wilcoxon_results_eff_opt_2, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+### **Option 3)**
+
+Select one drug per sample.
+
+Select based on GSEA results.
+
+Select drug based on best GSEA score of a clone per sample.
+
+Then, include all other clones (only scClone2DR publication model).
+
+```{r}
+# select best drug, based on best GSEA score per sample
+best_drug <- scClone2DR_gsea %>%
+  mutate(sample = stringr::str_extract(clone, "^[^_]+")) %>%
+  group_by(sample) %>%
+  # select very best GSEA result per sample
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+# use semi_join function for filtering
+scClone2DR_gsea_opt_3 <- scClone2DR_gsea %>%
+  mutate(sample = str_extract(clone, "^[^_]+")) %>%
+  # with semi_join, include only sample - drug_delta_LOR combinations found in table "best_drug"
+  semi_join(best_drug, by = c("sample", "drug_delta_LOR")) %>%
+  select(-sample)
+
+# dual_bulk model: select best drug, based on best GSEA score per sample
+dual_bulk_gsea_opt_3 <- dual_bulk_gsea %>%
+  group_by(clone) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+gsea_opt_3 <- rbind(scClone2DR_gsea_opt_3, dual_bulk_gsea_opt_3) %>%
+  # have sample column with sample ID
+  mutate(sample = str_extract(clone, "^[^_]+"))
+```
+
+```{r}
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_3_comparison.tsv")
+write.table(gsea_opt_3, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+#### Density plots
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+
+# plot distribution of gene set score levels
+
+min_5 <- ggplot(gsea_opt_3, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best drug per sample, opt_3") +
+  geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_distribution_scClone2DR_vs_dual_bulk_jitter.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+
+min_5 <- ggplot(gsea_opt_3, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best per drug per sample, opt_3")
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_distribution_scClone2DR_vs_dual_bulk.pdf")
+ggsave(min_5, filename = filename, width = 6, height = 4)
+```
+
+#### Violin plot
+
+```{r}
+#| label: fig-violin-opt-3
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_3,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    #ggtitle("Best drug per sample (GSEA score), all clones, opt_3") +
+    ylab("NES GSEA") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, size = 0.5)
+
+print(my_p)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_violin_scClone2DR_vs_dual_bulk.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+```{r}
+# reformat results for plotting
+
+dual_bulk_anchor <- gsea_opt_3 %>%
+  filter(model == "dual_bulk")
+
+
+seg_df <- gsea_opt_3 %>%
+  filter(model == "scClone2DR") %>%
+  left_join(dual_bulk_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"))
+```
+
+Violin plot with lines.
+
+```{r}
+#| label: fig-violin-opt-3-lines
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_3, aes(x = model, y = NES)) +
+  geom_violin(aes(fill = model), alpha = 0.35) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.8, size = 0.5) +
+  geom_segment(
+    data = seg_df,
+    aes(x = "dual_bulk", xend = "scClone2DR", y = NES.dual_bulk, yend = NES.scClone2DR),
+    inherit.aes = FALSE,
+    linewidth = 0.2,
+    alpha = 0.6
+  ) +
+  scale_fill_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  ggtitle("Best drug per sample (GSEA score), all clones, opt_3") +
+  ylab("NES GSEA")
+  
+
+my_p
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_violin_scClone2DR_vs_dual_bulk_connecting_lines.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+#### Dot plot
+
+Plot dot plots.
+
+```{r}
+#| label: fig-dot-opt-3-lines
+#| fig-width: 8
+#| fig-height: 5
+
+p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  scale_fill_manual(values = cols_combined) +
+  scale_colour_manual(values = cols_combined) +
+  geom_point(
+    alpha = 0.7, 
+    size = 4,
+    shape = 21,
+    stroke = 2,   # <-- THIS controls the outline thickness
+    aes(fill = drug_delta_LOR.scClone2DR,  # interior colour
+      colour = drug_delta_LOR.dual_bulk          # outline colour
+      )
+  ) +
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)"
+  ) +
+  theme(axis.title = element_text(size = 10),
+        axis.text  = element_text(size = 9)) + 
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  #coord_fixed(ratio = 1) +
+  guides(
+    fill   = guide_legend(ncol = 2, order = 1),
+    colour = guide_legend(ncol = 2, order = 2)
+  ) +
+  labs(fill   = "Best drug scClone2DR",
+       colour = "Best drug dual_bulk")
+
+print(p_scatter)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_scatter_scClone2DR_vs_dual_bulk.pdf")
+ggsave(p_scatter, filename = filename, width = 8, height = 5)
+```
+
+Scatter plot for publication (without best drug dual_bulk colouring).
+
+```{r}
+#| label: fig-dot-opt-3-publ
+#| fig-width: 8
+#| fig-height: 5
+
+p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  scale_fill_manual(values = cols_combined) +
+  #scale_colour_manual(values = cols_combined) +
+  geom_point(
+    alpha = 0.7, 
+    size = 4,
+    shape = 21,
+    stroke = 0,   # <-- THIS controls the outline thickness
+    aes(fill = drug_delta_LOR.scClone2DR)) +  # interior colour
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)"
+  ) +
+  theme(axis.title = element_text(size = 10),
+        axis.text  = element_text(size = 9)) + 
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  #coord_fixed(ratio = 1) +
+  guides(
+    fill   = guide_legend(ncol = 1, order = 1)
+  ) +
+  labs(fill   = "Best drug scClone2DR")
+
+print(p_scatter)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_3_min_5_scatter_scClone2DR_vs_dual_bulk_no_surrounds.pdf")
+ggsave(p_scatter, filename = filename, width = 8, height = 5)
+```
+
+#### Wilcoxon test
+
+```{r}
+#| label: two-sided-wilcox-test-opt-3
+
+gsea_opt_3$model <- factor(gsea_opt_3$model, levels = c("scClone2DR", "dual_bulk"))
+```
+
+Level 1 for Wilcoxon test: `{r} levels(gsea_opt_3$model)[1]`
+
+Level 2 for Wilcoxon test: `{r} levels(gsea_opt_3$model)[2]`
+
+If p-value is high: no statistical evidence found that values in group 1 are smaller than in group 2.
+
+```{r}
+#| label: tbl-two-sided-wilcox-test-opt-3
+#| tbl-cap: "Wilcoxon opt_3"
+
+wilcoxon_results_opt_3 <- wilcox.test(
+  NES ~ model,
+  data = gsea_opt_3,
+  exact = FALSE,
+  alternative = "two.sided"
+) %>%
+  broom::tidy()
+
+# calculate effect size
+eff  <- rstatix::wilcox_effsize(gsea_opt_3, NES ~ model)
+# estimate direction of effect
+dir <- median(gsea_opt_3$NES[gsea_opt_3$model == "scClone2DR"], na.rm = TRUE) -
+      median(gsea_opt_3$NES[gsea_opt_3$model == "dual_bulk"], na.rm = TRUE)
+
+
+wilcoxon_results_eff_opt_3 <- bind_cols(wilcoxon_results_opt_3, eff) %>%
+      mutate(
+        median_diff_treated_minus_control = dir,
+        effsize_signed = sign(dir) * effsize
+      )
+
+wilcoxon_results_eff_opt_3 %>%
+  select(-method) %>%
+  kable()
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_3_comparison_wilcoxon_two_sided.tsv")
+write.table(wilcoxon_results_eff_opt_3, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+### **Option 4)**
+
+Select best drug per clone.
+
+Select based on GSEA results.
+
+For different clones (scClone2DR publication model), different drugs can be selected.
+
+```{r}
+# select best clone, based on best GSEA score
+scClone2DR_gsea_opt_4 <- scClone2DR_gsea %>%
+  group_by(clone) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+# dual_bulk model: select best drug, based on best GSEA score per sample
+dual_bulk_gsea_opt_4 <- dual_bulk_gsea %>%
+  group_by(clone) %>%
+  slice_max(order_by = NES, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+gsea_opt_4 <- rbind(scClone2DR_gsea_opt_4, dual_bulk_gsea_opt_4) %>%
+  mutate(sample = stringr::str_extract(clone, "^[^_]+"))
+```
+
+```{r}
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_4_comparison.tsv")
+write.table(gsea_opt_4, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+```{r}
+
+# per sample check how many different drugs were the best for the clones
+gsea_by_sample <- gsea_opt_4 %>%
+  group_by(sample) %>%
+  summarise(
+    # string with drugs
+    drug_set = paste(sort(unique(drug_delta_LOR)), collapse = ","),
+    # number of clones
+    number_of_clones = n(),
+    # number of drugs that have best GSEA score
+    number_of_drugs = n_distinct(drug_delta_LOR),
+    .groups = "drop"
+  )
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_4_comparison_summary.tsv")
+write.table(gsea_opt_4, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+
+gsea_by_sample %>%
+  kable()
+```
+
+#### Density plots
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+
+# plot distribution of gene set score levels
+
+min_5 <- ggplot(gsea_opt_4, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best drug per clone, opt_4") +
+  geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_distribution_scClone2DR_vs_dual_bulk_jitter.pdf")
+ggsave(min_5, filename = filename, width = 8, height = 5)
+
+min_5 <- ggplot(gsea_opt_4, aes(x = NES, colour = model, group = model)) +
+  scale_colour_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  geom_density() +
+  ggtitle("Distribution of GSEA scores, best per drug per clone, opt_4")
+
+min_5
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_distribution_scClone2DR_vs_dual_bulk.pdf")
+ggsave(min_5, filename = filename, width = 6, height = 4)
+```
+
+#### Violin plot
+
+```{r}
+#| label: fig-violin-opt-4
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_4,
+         aes(x = model,
+             y = NES)) +
+    scale_fill_manual(
+      values = c(dual_bulk = "#D55E00",
+      scClone2DR = "#009E73")
+    ) +
+    geom_violin(aes(fill = model), alpha = 0.35) +
+    #ggtitle("Best drug per clone (GSEA score), all clones, opt_4") +
+    ylab("NES GSEA") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, size = 0.5)
+
+print(my_p)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_violin_scClone2DR_vs_dual_bulk.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+```{r}
+# reformat results for plotting
+
+dual_bulk_anchor <- gsea_opt_4 %>%
+  filter(model == "dual_bulk")
+
+
+seg_df <- gsea_opt_4 %>%
+  filter(model == "scClone2DR") %>%
+  left_join(dual_bulk_anchor, by = "sample", suffix = c(".scClone2DR", ".dual_bulk"))
+```
+
+Violin plot with lines.
+
+```{r}
+#| label: fig-violin-opt-4-lines
+#| fig-width: 5
+#| fig-height: 3
+
+my_p <- ggplot(gsea_opt_4, aes(x = model, y = NES)) +
+  geom_violin(aes(fill = model), alpha = 0.35) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.8, size = 0.5) +
+  geom_segment(
+    data = seg_df,
+    aes(x = "dual_bulk", xend = "scClone2DR", y = NES.dual_bulk, yend = NES.scClone2DR),
+    inherit.aes = FALSE,
+    linewidth = 0.2,
+    alpha = 0.6
+  ) +
+  scale_fill_manual(values = c(dual_bulk = "#D55E00", scClone2DR = "#009E73")) +
+  ggtitle("Best drug per clone (GSEA score), all clones, opt_4") +
+  ylab("NES GSEA")
+  
+
+my_p
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_violin_scClone2DR_vs_dual_bulk_connecting_lines.pdf")
+ggsave(my_p, filename = filename, width = 5, height = 3)
+```
+
+#### Dot plot
+
+Plot dot plots.
+
+```{r}
+#| label: fig-dot-opt-4
+#| fig-width: 8
+#| fig-height: 5
+
+p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  scale_fill_manual(values = cols_combined) +
+  scale_colour_manual(values = cols_combined) +
+  geom_point(
+    alpha = 0.7, 
+    size = 4,
+    shape = 21,
+    stroke = 2,   # <-- THIS controls the outline thickness
+    aes(fill = drug_delta_LOR.scClone2DR,  # interior colour
+      colour = drug_delta_LOR.dual_bulk          # outline colour
+      )
+  ) +
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)"
+  ) +
+  theme(axis.title = element_text(size = 10),
+        axis.text  = element_text(size = 9)) + 
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  coord_fixed(ratio = 1) +
+  guides(
+    fill   = guide_legend(ncol = 2, order = 1),
+    colour = guide_legend(ncol = 2, order = 2)
+  ) +
+  labs(fill   = "Best drug scClone2DR",
+       colour = "Best drug dual_bulk")
+
+print(p_scatter)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_scatter_scClone2DR_vs_dual_bulk.pdf")
+ggsave(p_scatter, filename = filename, width = 8, height = 5)
+```
+
+Scatter plot for publication (without best drug dual_bulk).
+
+```{r}
+#| label: fig-dot-opt-4-publ
+#| fig-width: 8
+#| fig-height: 5
+
+p_scatter <- ggplot(seg_df, aes(x = NES.dual_bulk, y = NES.scClone2DR)) +
+  scale_fill_manual(values = cols_combined) +
+  #scale_colour_manual(values = cols_combined) +
+  geom_point(
+    alpha = 0.7, 
+    size = 4,
+    shape = 21,
+    stroke = 0,   # <-- THIS controls the outline thickness
+    aes(fill = drug_delta_LOR.scClone2DR)) +  # interior colour
+  labs(
+    x = "NES (dual_bulk)",
+    y = "NES (scClone2DR)"
+  ) +
+  theme(axis.title = element_text(size = 10),
+        axis.text  = element_text(size = 9)) + 
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  coord_fixed(ratio = 1) +
+  guides(
+    fill   = guide_legend(ncol = 1, order = 1)
+  ) +
+  labs(fill   = "Best drug scClone2DR")
+
+print(p_scatter)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_scatter_scClone2DR_vs_dual_bulk_no_surrounds.pdf")
+ggsave(p_scatter, filename = filename, width = 8, height = 5)
+```
+
+#### Wilcoxon test
+
+```{r}
+#| label: two-sided-wilcox-test-opt-4
+
+
+gsea_opt_4$model <- factor(gsea_opt_4$model, levels = c("scClone2DR", "dual_bulk"))
+```
+
+Level 1 for Wilcoxon test: `{r} levels(gsea_opt_4$model)[1]`
+
+Level 2 for Wilcoxon test: `{r} levels(gsea_opt_4$model)[2]`
+
+If p-value is high: no statistical evidence found that values in group 1 are smaller than in group 2.
+
+```{r}
+#| label: tbl-two-sided-wilcox-test-opt-4
+#| tbl-cap: "Wilcoxon opt_4"
+
+wilcoxon_results_opt_4 <- wilcox.test(
+  NES ~ model,
+  data = gsea_opt_4,
+  exact = FALSE,
+  alternative = "two.sided"
+) %>%
+  broom::tidy()
+
+# calculate effect size
+eff  <- rstatix::wilcox_effsize(gsea_opt_4, NES ~ model)
+# estimate direction of effect
+dir <- median(gsea_opt_4$NES[gsea_opt_4$model == "scClone2DR"], na.rm = TRUE) -
+      median(gsea_opt_4$NES[gsea_opt_4$model == "dual_bulk"], na.rm = TRUE)
+
+wilcoxon_results_eff_opt_4 <- bind_cols(wilcoxon_results_opt_4, eff) %>%
+      mutate(
+        median_diff_treated_minus_control = dir,
+        effsize_signed = sign(dir) * effsize
+      )
+
+wilcoxon_results_eff_opt_4 %>%
+  select(-method) %>%
+  kable()
+
+filename <- paste0(output, my_indication,
+                   "_civic_oncokb_genes_delta_LOR_gsea_opt_4_comparison_wilcoxon_two_sided.tsv")
+write.table(wilcoxon_results_eff_opt_4, file = filename, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+#### Pie and bar chart
+
+Show how often the drugs were chosen with the highest GSEA score of a clone.
+
+```{r}
+#| label: fig-pie-opt-4
+#| fig-width: 8
+#| fig-height: 5
+
+drug_counts <- gsea_opt_4 %>%
+  dplyr::count(pathway, name = "count")
+
+#cols_dark2 <- brewer.pal(8, "Dark2")
+#cols_set2  <- brewer.pal(8, "Set2")
+#cols_combined <- c(cols_dark2, cols_set2)
+
+
+pie <- ggplot(drug_counts, aes(x = "", y = count, fill = pathway)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  labs(
+    title = "Frequency of drugs with best GSEA score per clone (scClone2DR model)",
+    fill = "Drug"
+  ) +
+  theme_void() +
+  scale_fill_manual(values = cols_combined) +
+  theme(
+    legend.text   = element_text(size = 13),
+    legend.title  = element_text(size = 14),
+    plot.title = element_text(size = 15)
+  )
+
+print(pie)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_pie_scClone2DR_vs_dual_bulk.pdf")
+ggsave(pie, filename = filename, width = 8, height = 5)
+
+```
+
+```{r}
+#| label: fig-bar-opt-4
+#| fig-width: 8.5
+#| fig-height: 5
+
+
+bar <- ggplot(drug_counts, aes(x = reorder(pathway, count), y = count, fill = pathway)) +
+  geom_col(color = "black", linewidth = 0.3) +
+  coord_flip() +
+  labs(x = "Drug", y = "Count") +
+  scale_fill_manual(values = cols_combined) +
+  theme_minimal() +
+  labs(
+    title = "Count of drugs with best GSEA score per clone for scClone2DR model") +
+  theme(
+    axis.text.y   = element_text(size = 14),
+    axis.text.x   = element_text(size = 12),
+    axis.title    = element_text(size = 14),
+    legend.text   = element_text(size = 13),
+    legend.title  = element_text(size = 14),
+    plot.title = element_text(size = 15)
+  )
+
+print(bar)
+
+filename <- paste0(output, my_indication, "_", "delta_LOR_gsea_opt_4_min_5_bar_scClone2DR_vs_dual_bulk.pdf")
+ggsave(bar, filename = filename, width = 8.5, height = 5)
+```
+
+## R sessionInfo()
+
+```{r}
+#| label: sessionInfo
+#| code-fold: true
+
+Sys.time()
+
+sessionInfo()
+
+```

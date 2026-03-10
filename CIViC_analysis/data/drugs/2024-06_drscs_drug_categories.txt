@@ -1,0 +1,47 @@
+orig-name	rank (comment)	drug_target_group	approved for melanoma (CH)?		
+Trametinib	"1 (MEKi, any MAPK driven melanoma)"	MAPK	approved		
+Dabrafenib	"2 (BRAFi, any BRAF mutated melanoma)"	MAPK	approved		
+Palbociclib	"3 (CDK4/6i, CDKN2A loss melanomas)"	CDK4/6	off label		
+Crizotinib	4 (METi)	RTK	off label		
+Imatinib	"5 (KITi, PDGFRi, ABLi, ckit driven melanomas)"	RTK	off label		
+Sorafenib	"6 (RAFi, VEGFRi, any MAPK driven melanoma incl. GNA/GNAQ mut.)"	RTK	off label		
+Erlotinib	"7 (EGFRi, BRAFi resistant melanomas)"	RTK	off label		
+Everolimus	"8 (mTORi, PTEN loss or PI3K mut. Melanomas)"	PI3K/AKT/mTOR	off label		
+Temozolomide	"9 (chemo, alkylating agent)"	chemo	off label		
+Cisplatin	"10 (chemo, alkylating)"	chemo	approved		
+Paclitaxel	"11 (chemo,microtubule disassembly)"	chemo	off label		
+Dacarbazine	"12 (chemo, antimetabolite, alkylating) "	chemo	approved		
+Vindesine	"13 (chemo, vinca-alkaloid, prevents microtubule formation)"	chemo	approved		
+STO	"14 (Cu chelator, preclinical successful in melanoma)"	Cu chelator	preclinical		
+Ulixertinib	"15 (ERKi, similar inhibitor trial at USZ)"	MAPK	clinical trials		
+MLN2480	"16 (panRAFi, similar inhibitor trial at USZ)"	MAPK	clinical trials		
+Ixazomib	"17 (proteasome inhibitor, successful in melanoma pharmacoscopy)"	proteasome	off label		
+Lenalidomide	18 (immune modulatory)	immune modulatory	off label		
+Dexamethasone	"19 (corticosteroid, successful in melanoma pharmacoscopy in combi with proteasome inhibitors)"	immune modulatory	UNKNOWN		
+Olaparib	"20 (PARPi, melanomas with DNA repair defects)"	PARP	off label		
+Regorafenib	"21 (multi kinase inh, VEGFR, PDGFR, RAF)"	RTK	off label		
+Midostaurin	22 (pan kinase inhibitor incl. PKCi)	RTK	off label		
+Dasatinib	"23 (SRCi, ABLi) "	RTK	off label		
+Panobinostat	24 (HDACi) 	HDAC	off label		
+Decitabine	25 (DNA methylation inhibitor)	chemo	off label		
+Hydroxyurea	"26 (chemo, antimetabolite)"	chemo	off label		
+Melphalan	"27 (chemo, alkylating agent, nitrogen mustard derived)"	chemo	off label		
+Cobimetinib	28 (MEKi)	MAPK	approved		
+Vemurafenib	29 (BRAFi)	MAPK	in trials		
+Ribociclib	30 (CDK4/6i)	CDK4/6	off label 		
+Cabozantinib	"31 (METi, VEGFR2i)"	RTK	off label 		
+Gefitinib	32 (EGFRi)	RTK	off label 		
+Temsirolimus	33 (mTORi)	PI3K/AKT/mTOR	off label 		
+Carboplatin	"34 (chemo, alkylating)"	chemo	off label 		
+Docetaxel	"35 (chemo,microtubule disassembly)"	chemo	off label		
+Elesclomol	36 (Cu chelator)	Cu chelator	in trials		
+Vincristine	"37 (chemo, vinca alkaloid, microtubule formation inhibitor)"	chemo	approved		
+Carfilzomib	38 (proteasome inhibitor) 	proteasome	off label		
+Pomalidomide	39 (immune modulatory)	immune modulatory	off label		
+Rucaparib	"40 (PARPi, melanomas with DNA repair defects)"	PARP	FDA approved only		
+Belinostat	41 (HDACi)	HDAC	FDA approved only		
+Binimetinib	"42 (MEKi, MEK162)"	MAPK	in trials		
+Buparlisib		PI3K/AKT/mTOR			in Tupro report but not in Dec2019 drug list
+Alpelisib		PI3K/AKT/mTOR			in Tupro report but not in Dec2019 drug list
+Lenvatinib		RTK			in Tupro report but not in Dec2019 drug list
+Nilotinib		RTK			in Tupro report but not in Dec2019 drug list

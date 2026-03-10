@@ -1,0 +1,507 @@
+---
+title: "GSEA of bulk baseline model beta on civic gene sets"
+subtitle: "GSEA score on delta LOR, per clone"
+author: "Anne Bertolini"
+
+format: html
+date: last-modified
+code-overflow: wrap
+lightbox: true
+
+#code-block-border-left: "#31BAE9"
+editor: visual
+embed-resources: true # makes html document quite large
+
+#abstract-title:
+#abstract:
+tidy: true
+
+toc: true # [false, true] Include a table of contents in the document
+toc-depth: 6 # Least significant section header to include in table of contents
+toc-expand: 3
+
+number-sections: false # [false, true] Should section headings be numbered?
+number-depth: 6 # {html, pdf, docx, revealjs, beamer, epub} Least significant section header to be numbered
+
+fig-show: asis
+code-fold: true
+code-summary: ""
+---
+
+------------------------------------------------------------------------
+
+## Overview
+
+Calculate delta LOR, then GSEA scores on those values.
+
+Bulk baseline model.
+
+------------------------------------------------------------------------
+
+## Load packages
+
+```{r}
+#| label: load-packages
+#| output: false
+
+library(optparse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(rhdf5)
+library(stringr)
+library(ggbeeswarm)
+library(tidyverse)
+library(patchwork)
+library(RColorBrewer)
+
+# source helper functions
+source("../misc.R")
+```
+
+------------------------------------------------------------------------
+
+## Input data, output directory
+
+```{r}
+#| label: define-input-output-directories
+
+# set env variable WORKING_DIRECTORY
+# Sys.setenv(WORKING_DIRECTORY = "2023_cb_beerenwinkel_SDSC/scRNA/08_gsea/2025-12-01_gsea_delta_lor/melanoma/")
+
+working_directory <- Sys.getenv("WORKING_DIRECTORY")
+
+input <- paste0(working_directory, "input/")
+output <- paste0(working_directory, "output/bulk_baseline/")
+```
+
+```{r}
+my_indication <- "melanoma"
+my_model <- "bulk_baseline"
+```
+
+Read input files and tables.
+
+```{r}
+#| label: read-general
+
+# all genes in civic
+table_civic <- read.table(paste0(
+  input, "01-Apr-2025_per_drug_gene_lists.tsv"
+),
+header = F, sep = "\t")
+
+# Oncogenes OncoKB
+table_onco <- read.table(paste0(input, "cancerGeneList.tsv"),
+                         header = T, sep = "\t")
+
+# gene annotation file
+gene_file <- paste0(input, "Homo_sapiens.GRCh38.111.gene_info.csv")
+gene_info <- read.delim(file = gene_file, header = TRUE, sep = "," )
+
+
+# Melanoma drug description table (file)
+mel_drug_table <- paste0(input, "2024-06_drscs_drug_categories.txt")
+
+# drugs
+table_drugs <- read.delim(file = mel_drug_table, header = TRUE, sep = "\t" ) %>%
+  # rename column to "drug"
+  dplyr::rename(drug = orig.name)
+table_drugs2 <- bind_rows(
+  table_drugs,
+  table_drugs %>% 
+    filter(drug == "MLN2480") %>%
+    mutate(drug = "Mln2480")
+)
+table_drugs <- table_drugs2
+
+# remove drug combinations
+table_drugs <- table_drugs[!grepl("\\|",x = table_drugs$drug), 1:4]
+```
+
+```{r}
+# join tables of drugs (from civic and our analysis)
+# perform inner join, use only drugs that are in our model analysis and also in the civic database
+inner_table <- dplyr::inner_join(table_civic, table_drugs, by = join_by(V1 == drug))
+
+# reformat to list of genes per drug (see inner join)
+drug_gene_sets <- inner_table %>%
+  mutate(genes = stringr::str_split(V2, ",")) %>%   # split the genes into lists
+  select(V1, genes) %>%
+  tibble::deframe()
+```
+
+Read in LOR values.
+
+```{r}
+## LOR
+
+LOR_file <- paste0(input, "geneOncoKB_scatrex/bulk__LOR.h5")
+
+print(rhdf5::h5ls(LOR_file))
+attrs <- rhdf5::h5readAttributes(file = LOR_file,
+                                 name = "LOR_posterior_mean")
+
+h5f = rhdf5::H5Fopen(LOR_file)
+data = aperm(h5f$LOR_posterior_mean)
+dim(data)
+#print(attrs)
+rhdf5::h5closeAll()
+
+# map gene symbols to attrs
+# misc.R function
+attrs$dim4_dimensions <- replace_gene_ids_with_symbols(attrs, gene_info)
+
+# give out first 10 elements of each list, for demonstrational purposes
+lapply(attrs, function(x) head(x, 10))
+```
+
+```{r}
+# keep only genes in gene sets that are in our data set
+filtered_drug_gene_sets <- lapply(
+  drug_gene_sets,
+  function(x) x[x %in% attrs$dim4_dimensions]
+)
+```
+
+Calculate delta LOR per clone.
+
+```{r}
+# drugs, samples, genes are vectors
+# LOR is a 4D array: [drug, subset, sample, gene]
+
+deltaLOR <- array(
+  0,
+  dim = c(length(attrs$dim1_drugs),
+          1, # one less than before
+          length(attrs$dim3_samples),
+          length(attrs$dim4_dimensions)))
+
+
+# form delta LOR subtracting each malignant clone value from the non-malignant LOR
+for (i_drug in seq_along(attrs$dim1_drugs)) {
+  #i_drug = 1
+  # Hydroxyurea = 19
+  # i_drug = 19
+  for (malclone in 1) {                       # In bulk_baseline model there is only one malignant clone
+    #malclone = 1
+    for (i_sample in seq_along(attrs$dim3_samples)) {
+      #i_sample = 46
+      for (i_feat in seq_along(attrs$dim4_dimensions)) {
+        #i_feat = 1
+        # Reference is subset 0 (index 1 in R)
+        # Subset k (1..8) lives at index k+1 in R
+        deltaLOR[i_drug, malclone, i_sample, i_feat] <-
+          data[i_drug, 1, i_sample, i_feat] -
+          data[i_drug, malclone + 1L, i_sample, i_feat]
+      }
+    }
+  }
+}
+```
+
+Combine the dimensions of sample and cluster/clone.
+
+From sample: "MACEGEJ" "MACYHYS" "MADEGOD" .. And cluster/clone: 1 (bulk_baseline has only one malignant clone). Now combined: "MACYHYS_1" "MADEGOD_1" ..
+
+Have data frame per drug.
+
+```{r}
+#| label: reformat-sample-clone-together
+
+# final list will contain entry (data frame) per drug
+# data frame has sample_clone as rows
+# and features as columns
+drug_lists <- list()
+
+# create one plot per drug
+for (drug in seq_along(attrs$dim1_drugs)) {
+  # drug = 1
+  all_patients_list <- list()
+    # for each drug combine the information of all patients
+    for (patient in seq_along(attrs$dim3_samples)) {
+      # patient = 1
+      
+      # because bulk_baseline is only one malignant clone,
+      # make sure, drop = FALSE!
+      patient_data <- as.data.frame(deltaLOR[drug, , patient, , drop = FALSE])
+      rownames(patient_data) <- paste0(attrs$dim3_samples[patient],
+                                       "_",
+                                       1) # bulk_baseline has only one malignant clone
+      colnames(patient_data) <- attrs$dim4_dimensions
+      all_patients_list[[patient]] <- patient_data
+    }
+  # gather data from all patients
+  md <- do.call("rbind", all_patients_list)
+  # remove clone rows where the clone ID is not present in the patient at hand (and all values are NA)
+  # NOTE: For Hydroxyurea existing clones can have NaN for all features.
+  # These clones are also filtered out here.
+  # Discussed with Quentin in Mails from 01.12.25. We can ignore these clusters.
+  # NOTE: For Bulk baseline model NaN clones is not a problem!
+  # extend filter to also remove mixed rows with NA, NaN, and -Inf
+  filter_mask_rows <- apply(md, 1, function(x)
+    all(is.na(x) | is.nan(x) | x == -Inf)
+  )
+  md <- md[!filter_mask_rows, ]
+
+  my_drug_name <- attrs$dim1_drugs[[drug]]
+  # insert data frame into drug_list with one entry per drug
+  drug_lists[[my_drug_name]] <- md
+}
+```
+
+The drug Hydroxyurea contained missing values (NaN and/or -Inf) for all features in some clones in the analysis of the main model.
+
+The following clones are removed in combination with Hydroxyurea:
+
+```{r}
+# some clusters have only NaN values as LOR
+print(setdiff(rownames(drug_lists$Belinostat), rownames(drug_lists$Hydroxyurea)))
+```
+
+This is not a problem with the bulk baseline model.
+
+For some drugs no GSEA results are available.
+
+Some of those drugs are included in our analysis but not listed in the CIViC database at all.
+
+```{r}
+drugs_not_in_civic <- setdiff(table_drugs$drug, table_civic$V1)
+
+drugs_min_5_genes_in_overlap <- names(filtered_drug_gene_sets[lengths(filtered_drug_gene_sets) >= 5])
+
+drugs_less_5_genes_in_overlap <- names(filtered_drug_gene_sets[lengths(filtered_drug_gene_sets) < 5])
+
+
+drug_sets <- list(
+  drugs_not_in_civic= drugs_not_in_civic,
+  drugs_min_5_genes_in_overlap = drugs_min_5_genes_in_overlap,
+  drugs_less_5_genes_in_overlap = drugs_less_5_genes_in_overlap
+)
+
+
+overview <- enframe(drug_sets, name = "category", value = "drug") %>%
+  unnest_longer(drug) %>%                        # one row per (category, drug)
+  group_by(category) %>%
+  summarise(
+    n_drugs = n_distinct(drug),                  # how many unique drugs
+    drugs   = paste(sort(unique(drug)), collapse = ", ")
+  )
+
+knitr::kable(
+  overview,
+  caption = "Drug membership per category",
+  align = c("l", "c", "l")
+)
+```
+
+The delta LOR is one value per drug and gene and clone.
+
+Run a GSEA analysis per drug and for each gene set.
+
+Combine the results.
+
+The results can later be sub-setted (e.g. filtered for gene sets with minimum number of genes).
+
+```{r}
+#| message: false
+#| warning: false
+
+
+# Each vector of deltal LOR values is tested against the respective gene set
+list_fgsea_plots <- list()
+
+df <- tibble(
+  pathway = character(0),
+  pval = numeric(0),
+  padj = numeric(0),
+  log2err = numeric(0),
+  ES = numeric(0),
+  NES = numeric(0),
+  size = numeric(0),
+  leadingEdge = character(0),
+  drug_delta_LOR = character(0),
+  model = character(0),
+  clone = character(0)
+)
+
+# only check drugs with at least 5 genes overlap between CIViC and dataset
+for (my_drug in drugs_min_5_genes_in_overlap) {
+  #my_drug <- "Panobinostat"
+  #print(my_drug)
+  # data frame with genes as columns and clones as rows
+  delta_LOR <- drug_lists[[my_drug]]
+  list_fgsea_plots_per_clone <- list()
+  
+  # run GSEA per clone
+  for (my_clone in rownames(delta_LOR)) {
+    # my_clone <- "MACEGEJ_1"
+    # have named vector of LOR values
+    my_LOR <- as.numeric(delta_LOR[my_clone, ])
+    
+    # Condition: all values are either NaN or -Inf
+    # this is now checked in code block "reformat-sample-clone-together"
+    # Should not show up
+    if (all(is.nan(my_LOR) | my_LOR == -Inf)) {
+      print(sprintf("Skipping iteration with drug %s and cluster %s: my_LOR contains only NaN and/or -Inf", my_drug, my_clone))
+      next
+    }
+    
+    names(my_LOR) <- colnames(delta_LOR)
+    # sort vector of delta LOR values
+    # sort by absolute values, in descending order
+    # highest absolute delta LOR value to lowest
+    # the order seems to have an effect on the enrichment score and the p-value
+    my_delta_LOR_vector_sorted <- tibble(value = my_LOR) %>%
+      arrange(desc(abs(value))) %>%
+      pull(value)
+    
+    fgseaRes <- fgsea::fgsea(pathways = drug_gene_sets[my_drug],
+                             stats    = my_delta_LOR_vector_sorted,
+                             minSize  = 1,
+                             maxSize  = 500)
+
+
+    p <- fgsea::plotEnrichment(pathway = drug_gene_sets[[my_drug]],
+                               stats = my_delta_LOR_vector_sorted) +
+      labs(title = my_clone)
+    
+    fgseaRes$drug_delta_LOR <- my_drug
+    fgseaRes$model <- my_model
+    fgseaRes$clone <- my_clone
+    
+    fgseaRes <- fgseaRes %>%
+      mutate(leadingEdge = map_chr(leadingEdge, ~ paste(.x, collapse = ",")))
+
+    # merge to data frame for all results
+    df <- df %>%
+      tibble::add_row(fgseaRes)
+    
+    list_fgsea_plots_per_clone[[my_clone]] <- p
+  }
+  combined_plot <- patchwork::wrap_plots(list_fgsea_plots_per_clone, ncol = 10) +
+    patchwork::plot_annotation(title = my_drug,
+                               theme = theme(
+      plot.title = element_text(size = 24, face = "bold")   # increase size here
+    ))
+  #print(combined_plot)
+  filename <- paste0(output, my_drug, "_GSEA_delta_LOR_per_clone.png")
+  ggsave(filename = filename,plot = combined_plot, width = 30, height = 15, dpi = 300, limitsize = FALSE)
+  # merge fgsea plots per clone and drug in one list
+  list_fgsea_plots[[my_drug]] <- combined_plot
+}
+```
+
+```{r}
+# write results table
+filename <- paste0(output, my_model, "_GSEA_delta_LOR.tsv")
+write.table(x = df, file = filename, append = F, quote = F, sep = "\t", row.names = F, col.names = T)
+
+# reduced to only those gene sets containing 5 or more genes
+df_min5 <- df %>% 
+  filter(size >= 5)
+filename <- paste0(output, my_model, "_GSEA_delta_LOR_min5.tsv")
+write.table(x = df_min5, file = filename, append = F, quote = F, sep = "\t", row.names = F, col.names = T)
+```
+
+## Violin plot per drug
+
+Violin plot per drug with each clone one dot in the distribution.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 5
+#| fig-height: 5
+#| fig-show: asis
+#| results: asis
+#| fig-merge: false
+
+list_all_drug_violin_plots <- list()
+
+for (my_drug in drugs_min_5_genes_in_overlap) {
+  #my_drug <- "Vemurafenib"
+
+  my_data <- df %>%
+    filter(str_detect(drug_delta_LOR, my_drug))
+
+  my_p <- ggplot(my_data,
+         aes(x = drug_delta_LOR,
+             y = NES)) +
+    geom_violin() +
+    ggtitle(my_drug) +
+    ylab("Normalised enrichment score") +
+    ggbeeswarm::geom_quasirandom(alpha = 08, groupOnX = T, size = 1.5)
+
+  filename <- paste0(output,
+                     my_indication,
+                     "_",
+                     my_drug,
+                     "_gsea_delta_LOR__violin_plot.png")
+  ggsave(filename = filename, width = 5, height = 5)
+
+    list_all_drug_violin_plots[[my_drug]] <- my_p
+}
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 15
+#| fig-height: 15
+
+list_drug_violin_plots_min5 <- list_all_drug_violin_plots[
+  names(list_all_drug_violin_plots) %in% drugs_min_5_genes_in_overlap]
+
+combined_violin_min5 <- patchwork::wrap_plots(list_drug_violin_plots_min5,
+                                         ncol = 5) +
+  plot_layout(guides = 'keep') +
+  plot_annotation(
+  title = 'Violin plots of all gene sets',
+  subtitle = 'Each violin shows GSEA results for one drug and each clone.'
+)
+
+print(combined_violin_min5)
+
+filename <- paste0(output, my_indication, "_", my_model, "_delta_LOR_gsea_violin_min5.png")
+ggsave(combined_violin_min5, filename = filename, width = 10, height = 10)
+```
+
+## Density Plots
+
+```{r}
+#| label: fig-comparison
+#| fig-width: 12
+#| fig-height: 9
+
+# plot distribution of gene set score levels
+
+#filtered_gsea
+p <- ggplot(df,
+                aes(x = NES,
+                    colour = model,
+                    group = model)) +
+  geom_density() +
+  facet_wrap(~pathway) +
+  ggtitle("Distribution of GSE score")
+  #geom_jitter(aes(y = 0), height = 0.05, alpha = 0.3, size = 1)
+
+p
+
+filename <- paste0(output, my_indication, "_", my_model, "_delta_LOR_gsea_distribution.png")
+ggsave(p, filename = filename, width = 10, height = 7)
+```
+
+------------------------------------------------------------------------
+
+## R sessionInfo()
+
+```{r}
+#| label: sessionInfo
+#| code-fold: true
+
+Sys.time()
+
+sessionInfo()
+
+```
