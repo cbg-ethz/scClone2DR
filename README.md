@@ -1,7 +1,7 @@
 # scClone2DR: Clone-level multi-modal prediction of tumour drug response
 
 <p align="center">
-  <img src="assets/logo.png" alt="scClone2DR logo" width="220"/>
+  <img src="assets/logo.png" alt="scClone2DR logo" width="500"/>
 </p>
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
