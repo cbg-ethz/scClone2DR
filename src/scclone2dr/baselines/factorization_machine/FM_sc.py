@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from ...resultanalysis import *
-from ...datasets import *
+from ...inference.model_evaluator import ModelEvaluator, _GUIDE_TYPE_KEY, Results
+from ...data.basedataset import BaseDataset
 import pickle
 from copy import deepcopy
 from ...utils import *
@@ -41,14 +41,19 @@ class FM_sc_model(nn.Module):
         return li_weights
 
 
-class FM_sc(BaseDataset, ComputeStatistics):
+class FM_sc(BaseDataset, ModelEvaluator):
     def __init__(self, cluster2clonelabel, clonelabel2cat, use_true_proportions=False):
-        ComputeStatistics.__init__(self)
         BaseDataset.__init__(self)
         self.cluster2clonelabel = cluster2clonelabel
         self.clonelabel2cat = clonelabel2cat
-        self.init_cat_clonelabel()        
+        self._init_cat_clonelabel()        
+        from ...model import scClone2DR
+        self.model = scClone2DR(mode_nu="noise_correction", mode_theta="not shared decoupled")
+        self.model.configure(self)
         self.use_true_proportions = use_true_proportions
+        ModelEvaluator.__init__(self, self.model)
+        self.results = {}
+
         
     def get_local_importance_weights(self, data):
         # return the ratio pi_k/pi_0 of shape:  D x (total subclones)
@@ -118,15 +123,19 @@ class FM_sc(BaseDataset, ComputeStatistics):
         ratios_pi = ratios_pi.permute(0,2,1)
         pi = deepcopy(ratios_pi)
         D, Kmax, N = pi.shape
+
+
+        self.r = self.compute_all(data, {'pi':pi, 'proportions':proportions}, true_params=true_params)
+
         if not(true_params is None):
             for d in range(D):
                 for i in range(N):
                     pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
-            self.compute_KL_survival_proba(data, {'pi':pi})
-            self.compute_error_overall_survival(data, {'pi':pi, 'proportions':proportions})
-            self.compute_spearman_drug(data, data, params={'pi':ratios_pi})
-            self.compute_drug_effects({'pi':ratios_pi, 'proportions':proportions}, true_params=data)
-            self.compute_spearman_subclone(data, data, params={'pi':ratios_pi})
+            self.kl_survival_probas(true_params, {'pi':pi})
+            self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
+            self.spearman_drug(true_params, data, params={'pi':ratios_pi})
+            self.drug_effects({'pi':ratios_pi, 'proportions':proportions}, true_params=true_params)
+            self.spearman_subclone(true_params, data, params={'pi':ratios_pi})
         
         self.pi = pi
         self.proportions = proportions

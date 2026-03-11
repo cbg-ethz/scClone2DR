@@ -208,7 +208,7 @@ class BaseModelEvaluator:
     # Guide distribution reconstruction
     # ------------------------------------------------------------------
 
-    def build_guide_distribution(self, params: dict):
+    def build_guide_distribution(self, params: dict, guide_type: GuideType):
         """Reconstruct the variational distribution from *params*.
 
         Parameters
@@ -227,13 +227,13 @@ class BaseModelEvaluator:
         ValueError
             For unrecognised guide-type values.
         """
-        if _GUIDE_TYPE_KEY not in params:
-            raise KeyError(
-                f"'{_GUIDE_TYPE_KEY}' not found in params. "
-                "The model was fitted on the MAP/MLE path — no guide available."
-            )
+        # if _GUIDE_TYPE_KEY not in params:
+        #     raise KeyError(
+        #         f"'{_GUIDE_TYPE_KEY}' not found in params. "
+        #         "The model was fitted on the MAP/MLE path — no guide available."
+        #     )
 
-        guide_type = GuideType(params[_GUIDE_TYPE_KEY])
+        # guide_type = GuideType(params[_GUIDE_TYPE_KEY])
 
         if guide_type is GuideType.FULL_MVN:
             return MultivariateNormal(
@@ -253,7 +253,7 @@ class BaseModelEvaluator:
                 covariance_matrix=torch.diag(scale ** 2),
             )
         if guide_type is GuideType.NONE:
-            return None 
+            return None
         else:
             raise ValueError(f"Unrecognised guide type: {guide_type!r}")
 
@@ -406,6 +406,7 @@ class ModelEvaluator(BaseModelEvaluator):
         data: dict,
         params: dict,
         true_params: dict = None,
+        fold_change: nool = True
     ) -> Results:
         """Compute every available metric and return a :class:`Results`.
 
@@ -419,18 +420,19 @@ class ModelEvaluator(BaseModelEvaluator):
             Fitted parameter dictionary (output of ``Trainer.train``).
         """
         # check that params in _model.fitted_params are the same as in the argument params, and log a warning if not
-        for key in self._model.fitted_params:
-            if key in params and key not in ['proportions', 'theta_fd']:
-
-                v1 = self._model.fitted_params[key]
-                v2 = params[key]
-
-                # only compare tensor-like values
-                if isinstance(v1, (torch.Tensor, np.ndarray)) and isinstance(v2, (torch.Tensor, np.ndarray)):
-                    if not torch.equal(torch.as_tensor(v1), torch.as_tensor(v2)):
-                        logger.warning(
-                            f"Value for key '{key}' differs between model.fitted_params and the argument params."
-                        )
+        if self._model.fitted_params is not None:
+            for key in self._model.fitted_params:
+                if key in params and key not in ['proportions', 'theta_fd']:
+    
+                    v1 = self._model.fitted_params[key]
+                    v2 = params[key]
+    
+                    # only compare tensor-like values
+                    if isinstance(v1, (torch.Tensor, np.ndarray)) and isinstance(v2, (torch.Tensor, np.ndarray)):
+                        if not torch.equal(torch.as_tensor(v1), torch.as_tensor(v2)):
+                            logger.warning(
+                                f"Value for key '{key}' differs between model.fitted_params and the argument params."
+                            )
         p = merge_data_params(data, params)  # numpy → tensor
         r = Results()
         if true_params is not None:
@@ -444,16 +446,18 @@ class ModelEvaluator(BaseModelEvaluator):
                 self.spearman_drug(true_params, data, params=p)
             )
             r.spearman_subclones_avg = self.spearman_subclone(true_params, data, params=p)
-            r.mse_beta               = self.beta_mse(true_params, p)
+            if 'beta' in p.keys():
+                r.mse_beta               = self.beta_mse(true_params, p)
             r.l1err_overall_survival = self.overall_survival_error(true_params, p)
 
         r.drug_effects, r.true_drug_effects, r.l1err_drug_effects = (
             self.drug_effects(p, true_params=true_params)
         )
-        fc = self.fold_change(data, p, true_params=true_params)
-        r.fold_change_pred = fc["pred"]
-        r.fold_change_data = fc["not pred"]
-        r.fold_change_true = fc.get("true", [])
+        if fold_change:
+            fc = self.fold_change(data, p, true_params=true_params)
+            r.fold_change_pred = fc["pred"]
+            r.fold_change_data = fc["not pred"]
+            r.fold_change_true = fc.get("true", [])
 
         return r
 

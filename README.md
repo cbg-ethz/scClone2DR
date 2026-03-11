@@ -24,6 +24,7 @@
 git clone https://github.com/cbg-ethz/scClone2DR
 cd scClone2DR
 pip install -e .
+pip install -e .[notebook]
 ```
 
 ## Quick Start

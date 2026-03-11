@@ -10,10 +10,13 @@ import copy
 
 class RealData(BaseDataset):
 
-    def __init__(self, path_fastdrug=None, path_rna=None, path_info_cohort=None):
+    def __init__(self, path_fastdrug=None, path_rna=None, path_info_cohort=None, concentration_drug=None):
         super(BaseDataset, self).__init__()
-        self.FD = FastDrug(path_fastdrug)
         self.RNA = RNAData(path_rna)
+        self.FD = FastDrug(path_fastdrug, samples = self.RNA.sample_names, concentration_drug = concentration_drug)
+        sample_names = np.intersect1d(self.RNA.sample_names, self.FD.sample_names)
+        self.sample_names = sample_names
+        self.drugs = self.FD.selected_drugs
         if not(path_rna is None):
             self.dfclones = pd.read_csv(self.RNA.path_rna+'clone_infos.csv', index_col=0)
             self.Kmax = self.dfclones.shape[0]
@@ -45,13 +48,12 @@ class RealData(BaseDataset):
 
     
     def get_real_data(self, concentration_DMSO='100', concentration_drug='10', standardize=True, seed=1, test_size=0.2, get_random_split=False):
-
-        sample_names = np.intersect1d(self.RNA.sample_names, self.FD.sample_names)
+        sample_names = self.sample_names
         print('Total number of samples: ', len(sample_names))
-        self.sample_names = sample_names
 
         ########### LOAD drug data
         self.FD.load_FD_data(self.sample_names, concentration_DMSO=concentration_DMSO, concentration_drug=concentration_drug)
+        self.drugs = self.FD.selected_drugs
 
         ########## LOAD RNA DATA: Number of cells per subclone
         max_num_cells_tmp = 50000

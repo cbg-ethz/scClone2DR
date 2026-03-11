@@ -154,6 +154,13 @@ class SimulatedData(BaseDataset):
         data_samp, _  = model.sampling(data_train, params)
         data_train = load_from_sampling(data_train, data_samp)
 
+
+        
+        if data_train['single_cell_features']:
+            params["pi"] = model.compute_survival_probas_single_cell_features(data_train, params)
+        else:
+            params["pi"] = model.compute_survival_probas_subclone_features(data_train, params)
+
         return data_train, params
 
     # ------------------------------------------------------------------
@@ -204,10 +211,15 @@ class SimulatedData(BaseDataset):
             buf[:, Ntrain:] = data[key][:, idxs_test]
             data_train[key] = buf
 
-        n_rna_buf = torch.zeros((Kmax, Ntot))
-        n_rna_buf[:, :Ntrain] = torch.as_tensor(data["n_rna"][:, tr])
-        n_rna_buf[:, Ntrain:] = torch.as_tensor(data["n_rna"][:, idxs_test])
-        data_train["n_rna"] = n_rna_buf
+        if data["n_rna"] is not None:
+            n_rna_buf = torch.zeros((Kmax, Ntot))
+            n_rna_buf[:, :Ntrain] = torch.as_tensor(data["n_rna"][:, tr])
+            n_rna_buf[:, Ntrain:] = torch.as_tensor(data["n_rna"][:, idxs_test])
+            data_train["n_rna"] = n_rna_buf
+            data_train["ini_proportions"] = _ini_proportions(data_train["n_rna"], Kmax, Ntot)
+        else:
+            data_train['n_rna'] = None
+            data_train["ini_proportions"] = data["ini_proportions"]
 
         data_train["n0_r"] = data["n0_r"][:, :, tr]
         data_train["n_r"]  = data["n_r"][:, :, tr]
@@ -216,7 +228,6 @@ class SimulatedData(BaseDataset):
         props_buf[:Ntrain] = data["proportions"][tr]
         props_buf[Ntrain:] = data["proportions"][idxs_test]
         data_train["proportions"] = props_buf
-        data_train["ini_proportions"] = _ini_proportions(data_train["n_rna"], Kmax, Ntot)
 
         data_train = _add_frac_stats(data_train, masks_train)
 
@@ -231,13 +242,18 @@ class SimulatedData(BaseDataset):
         data_test["X"]             = data["X"][:, te, :]
         data_test["X_nu_drug"]     = data["X_nu_drug"][:, :, te, :]
         data_test["X_nu_control"]  = data["X_nu_control"][:, te, :]
-        data_test["n_rna"]         = torch.as_tensor(data["n_rna"][:, te])
+        if data["n_rna"] is not None:
+            data_test["n_rna"]     = torch.as_tensor(data["n_rna"][:, te])
+            data_test["ini_proportions"] = _ini_proportions(data_test["n_rna"], Kmax, Ntest)
+        else:
+            data_test['n_rna'] = None
+            data_train["ini_proportions"] = data["ini_proportions"]
+
         data_test["n0_c"]          = data["n0_c"][:, te]
         data_test["n_c"]           = data["n_c"][:, te]
         data_test["n0_r"]          = data["n0_r"][:, :, te]
         data_test["n_r"]           = data["n_r"][:, :, te]
         data_test["proportions"]   = data["proportions"][te]
-        data_test["ini_proportions"] = _ini_proportions(data_test["n_rna"], Kmax, Ntest)
         data_test = _add_frac_stats(data_test, masks_test)
 
         return data_train, data_test
@@ -260,6 +276,9 @@ class SimulatedData(BaseDataset):
         for key in ("proportions", "theta_fd"):
             params_train[key]  = params[key][idxs_train,...]
             params_test[key]  = params[key][idxs_test,...]
+        if "pi" in params.keys():
+            params_train['pi'] = params['pi'][:,:,idxs_train]
+            params_test['pi'] = params['pi'][:,:,idxs_test]
         return params_train, params_test
 
     # ------------------------------------------------------------------
@@ -303,7 +322,7 @@ class SimulatedData(BaseDataset):
         data["proportions"] = p.T
 
         data["n_rna"]          = None
-        data["masks"]["RNA"]   = torch.tensor([0])
+        data["masks"]["RNA"]   = torch.zeros((2,data['N']))
 
         return data, dataset
 
@@ -359,7 +378,8 @@ class SimulatedData(BaseDataset):
     def _clone_with_topology(self, Kmax: int) -> "SimulatedData":
         """Return a *new* SimulatedData instance configured for ``Kmax`` clones."""
         ds = SimulatedData()
-        ds.init_topology(Kmax)
+        cluster2clonelabel, clonelabel2cat = _make_simple_topology(Kmax)
+        ds.init_topology(cluster2clonelabel, clonelabel2cat)
         return ds
 
     @staticmethod

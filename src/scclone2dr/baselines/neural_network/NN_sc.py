@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from ...resultanalysis import *
-from ...datasets import *
+from ...inference.model_evaluator import ModelEvaluator, _GUIDE_TYPE_KEY, Results
+from ...data.basedataset import BaseDataset
 import pickle
 from copy import deepcopy
 from ...utils import *
@@ -33,18 +33,23 @@ class NN_sc_model(nn.Module):
         return x
 
 
-class NN_sc(BaseDataset, ComputeStatistics):
+class NN_sc(BaseDataset, ModelEvaluator):
     """
     Neural Network model to estimate survival probabilities.
     This class should be used with features defined at the single-cell level.
     """
     def __init__(self, cluster2clonelabel, clonelabel2cat, use_true_proportions=False):
-        ComputeStatistics.__init__(self)
         BaseDataset.__init__(self)
         self.cluster2clonelabel = cluster2clonelabel
         self.clonelabel2cat = clonelabel2cat
-        self.init_cat_clonelabel()        
+        self._init_cat_clonelabel()        
+        from ...model import scClone2DR
+        self.model = scClone2DR(mode_nu="noise_correction", mode_theta="not shared decoupled")
+        self.model.configure(self)
         self.use_true_proportions = use_true_proportions
+        ModelEvaluator.__init__(self, self.model)
+        self.results = {}
+
 
     def eval(self, data, true_params=None):
         """
@@ -89,11 +94,11 @@ class NN_sc(BaseDataset, ComputeStatistics):
             for d in range(D):
                 for i in range(Ndrug):
                     pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
-            self.compute_KL_survival_proba(data, {'pi':pi})
-            self.compute_error_overall_survival(data, {'pi':pi, 'proportions':proportions})
-            self.compute_spearman_drug(data, data, params={'pi':pi})
-            self.compute_drug_effects({'pi':pi, 'proportions':proportions}, true_params=data)
-            self.compute_spearman_subclone(data, data, params={'pi':pi})
+            self.kl_survival_probas(true_params, {'pi':pi})
+            self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
+            self.spearman_drug(true_params, data, params={'pi':pi})
+            self.drug_effects({'pi':pi, 'proportions':proportions}, true_params=true_params)
+            self.spearman_subclone(true_params, data, params={'pi':pi})
         self.pi = pi
         self.proportions = proportions
         self.results['fold_change_pred'] = (fold_change_pred).numpy()

@@ -203,6 +203,7 @@ class scClone2DRPipeline:
         nb_ites: int = 100,
         dir_save: str | None = None,
         sample_names: list | None = None,
+        compute_feature_importance: boll = False,
         model_name: str = "",
     ) -> dict:
         """Run posterior sampling and optionally persist results to HDF5.
@@ -241,7 +242,7 @@ class scClone2DRPipeline:
 
         data_eval = deepcopy(data)
 
-        results = sampler.sample(data_eval, params_eval, idxs_sample=idxs_sample_eval, nb_ites=nb_ites)
+        results = sampler.sample(data_eval, params_eval, idxs_sample=idxs_sample_eval, nb_ites=nb_ites, compute_feature_importance=compute_feature_importance)
 
         if dir_save is not None:
             sampler.save_results(
@@ -349,6 +350,7 @@ class scClone2DRPipeline:
                 self._trainer.guide_type = GuideType(pipeline_config["guide_type"])
                 self._trainer.rank = int(pipeline_config["rank"])
                 params.setdefault(_GUIDE_TYPE_KEY, pipeline_config["guide_type"])
+                self._guide_distribution = self.evaluator.build_guide_distribution(params, self._trainer.guide_type)
 
             model_config = metadata.pop(_MODEL_CONFIG_KEY, None)
             self.model.load_configuration(model_config)
@@ -363,6 +365,9 @@ class scClone2DRPipeline:
         self._sampler = self._build_sampler_from_params(params)
 
         return params
+
+    def load_posterior_samples(self, path, to_torch=False, device=None):
+        return self._sampler.load_results(path, to_torch=to_torch, device=device)
 
     @classmethod
     def from_file(
@@ -430,19 +435,17 @@ class scClone2DRPipeline:
         constructed without a guide distribution — posterior sampling will
         raise a clear error if attempted.
         """
-        live_guide = self._trainer.guide
+        self._guide_distribution = self.evaluator.build_guide_distribution(params, self._trainer.guide_type)
+        
+        return PosteriorSampler(model=self.model, guide=self._guide_distribution)
 
+        # if _GUIDE_TYPE_KEY in params:
+        #     guide_dist = self.evaluator.build_guide_distribution(params)
+        #     return PosteriorSampler(model=self.model, guide=guide_dist)
 
-        if live_guide is not None:
-            return PosteriorSampler(model=self.model, guide=live_guide)
-
-        if _GUIDE_TYPE_KEY in params:
-            guide_dist = self.evaluator.build_guide_distribution(params)
-            return PosteriorSampler(model=self.model, guide_distribution=guide_dist)
-
-        # MAP/MLE path: no guide available.  Sampler is created without one;
-        # it will raise an informative error only if posterior sampling is called.
-        return PosteriorSampler(model=self.model)
+        # # MAP/MLE path: no guide available.  Sampler is created without one;
+        # # it will raise an informative error only if posterior sampling is called.
+        # return PosteriorSampler(model=self.model)
 
     # ------------------------------------------------------------------
     # Dunder

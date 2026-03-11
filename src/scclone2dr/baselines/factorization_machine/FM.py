@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from ...resultanalysis import *
-from ...datasets import *
+from ...inference.model_evaluator import ModelEvaluator, _GUIDE_TYPE_KEY, Results
+from ...data.basedataset import BaseDataset
 import pickle
 from copy import deepcopy
 
@@ -21,14 +21,18 @@ class FM_model(nn.Module):
         return torch.exp(self.bias.unsqueeze(1) + self.drug_feat @ self.W @ subclone_features / self.normalize)
 
 
-class FM(BaseDataset, ComputeStatistics):
+class FM(BaseDataset, ModelEvaluator):
     def __init__(self, cluster2clonelabel, clonelabel2cat, use_true_proportions=False):
-        ComputeStatistics.__init__(self)
         BaseDataset.__init__(self)
         self.cluster2clonelabel = cluster2clonelabel
         self.clonelabel2cat = clonelabel2cat
-        self.init_cat_clonelabel()        
+        self._init_cat_clonelabel()        
+        from ...model import scClone2DR
+        self.model = scClone2DR(mode_nu="noise_correction", mode_theta="not shared decoupled")
+        self.model.configure(self)
         self.use_true_proportions = use_true_proportions
+        ModelEvaluator.__init__(self, self.model)
+
 
     def eval(self, data, true_params=None):    
         Kmax, N, dim_pathways = data['X'].shape
@@ -89,13 +93,18 @@ class FM(BaseDataset, ComputeStatistics):
         for d in range(D):
             for i in range(N):
                 pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
-        self.compute_KL_survival_proba(data, {'pi':pi})
-        self.compute_error_overall_survival(data, {'pi':pi, 'proportions':proportions})
-        self.compute_spearman_drug(data, data, params={'pi':ratios_pi})
-        self.compute_drug_effects({'pi':ratios_pi, 'proportions':proportions}, true_params=data)
-        self.compute_spearman_subclone(data, data, params={'pi':ratios_pi})
-        self.results['fold_change_pred'] = (fold_change_pred.permute(1,0)).reshape(-1).numpy()
-        self.results['pi'] = pi
+
+
+        self.r = self.compute_all(data, {'pi':pi, 'proportions':proportions}, true_params, fold_change=False)
+        self.r.fold_change_pred = fold_change_pred
+        
+        # r.kl_survival_probas, r.survival_probas, r.true_survival_probas = self.kl_survival_probas(true_params, {'pi':pi})
+        # self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
+        # self.spearman_drug(true_params, data, params={'pi':ratios_pi})
+        # self.drug_effects({'pi':ratios_pi, 'proportions':proportions}, true_params=true_params)
+        # self.spearman_subclone(true_params, data, params={'pi':ratios_pi})
+        # self.results['fold_change_pred'] = (fold_change_pred.permute(1,0)).reshape(-1).numpy()
+        # self.results['pi'] = pi
 
 
     def train(self, data_train, nb_epochs=1000, lr=0.1, verbose=False):

@@ -20,8 +20,11 @@ import numpy as np
 import pyro
 import torch
 from tqdm import tqdm
+import json
 
 from ..utils import masked_softmax
+from ..trainer import GuideType
+
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +67,9 @@ class PosteriorSampler:
         self,
         model,
         guide: Callable | None = None,
-        guide_distribution=None,
     ) -> None:
         self._model              = model
         self._guide              = guide
-        self._guide_distribution = guide_distribution
 
     # ------------------------------------------------------------------
     # Public API
@@ -79,8 +80,9 @@ class PosteriorSampler:
         data: dict,
         params: dict,
         idxs_sample: list | None = None,
+        compute_feature_importance: bool = False,
         *,
-        nb_ites: int = 100,
+        nb_ites: int = 300,
     ) -> dict:
         """Draw *nb_ites* posterior samples and return accumulated statistics.
 
@@ -113,7 +115,7 @@ class PosteriorSampler:
         n_clonelabels  = self._model.n_clonelabels
         clonelabels    = self._model.clonelabels
 
-        if self._guide is None and self._guide_distribution is None:
+        if self._guide is None:
             nb_ites = 1
             using_clone_features = True
             dim = None
@@ -124,10 +126,11 @@ class PosteriorSampler:
 
         # Zero-initialise accumulators
         PI               = torch.zeros((D, Kmax, N))
-        LOR              = torch.zeros((D, Kmax, N, latent_dim))
-        LRR              = torch.zeros((D, Kmax, N, latent_dim))
-        ME               = torch.zeros((D, Kmax, N, latent_dim))
-        subclone_features = torch.zeros((Kmax, N, latent_dim))
+        if compute_feature_importance:
+            LOR              = torch.zeros((D, Kmax, N, latent_dim))
+            LRR              = torch.zeros((D, Kmax, N, latent_dim))
+            ME               = torch.zeros((D, Kmax, N, latent_dim))
+            subclone_features = torch.zeros((Kmax, N, latent_dim))
         accumulator      = self._init_accumulator(data, params, dim, idxs_sample=idxs_sample, using_clone_features=using_clone_features)
 
         with torch.no_grad():
@@ -138,9 +141,10 @@ class PosteriorSampler:
                     pi    = self._model.compute_survival_probas_single_cell_features(
                         data, params
                     )
-                    self._accumulate_subclone_features(
-                        subclone_features, data, params, nb_ites, clonelabels
-                    )
+                    if compute_feature_importance:
+                        self._accumulate_subclone_features(
+                            subclone_features, data, params, nb_ites, clonelabels
+                        )
                 else:
                     pi = self._model.compute_survival_probas_subclone_features(data, params)
                 ghost_data, ghost_params = self._model.sampling(data, params, idxs_sample=idxs_sample)
@@ -158,32 +162,37 @@ class PosteriorSampler:
                         accumulator['params'][var] = accumulator['params'].get(var, torch.zeros_like(val))
                         accumulator['params'][var] = accumulator['params'][var] + val / nb_ites
 
-                for j in range(latent_dim):
-                    pi_j = self._compute_pi_ablated(
-                        data, params, samp_gamma, dim, j, clonelabels, using_clone_features=using_clone_features
-                    )
-                    LOR[:, :, :, j] += (
-                        torch.log(pi / (1 - pi)) - torch.log(pi_j / (1 - pi_j))
+                if compute_feature_importance:
+                    for j in range(latent_dim):
+                        pi_j = self._compute_pi_ablated(
+                            data, params, samp_gamma, dim, j, clonelabels, using_clone_features=using_clone_features
+                        )
+                        LOR[:, :, :, j] += (
+                            torch.log(pi / (1 - pi)) - torch.log(pi_j / (1 - pi_j))
+                        ) / nb_ites
+                        LRR[:, :, :, j] += torch.log(pi / pi_j) / nb_ites
+    
+                    ME += (
+                        (ghost_params["pi"] * (1 - ghost_params["pi"]))[:, :, :, None]
+                        * params["beta"][:, None, None, :]
                     ) / nb_ites
-                    LRR[:, :, :, j] += torch.log(pi / pi_j) / nb_ites
-
-                ME += (
-                    (ghost_params["pi"] * (1 - ghost_params["pi"]))[:, :, :, None]
-                    * params["beta"][:, None, None, :]
-                ) / nb_ites
 
         for sample_dependent_var in ['proportions', 'theta_fd']:
             if sample_dependent_var in accumulator['params']:
                 val = accumulator['params'][sample_dependent_var]
                 accumulator['params'][sample_dependent_var] = val[idxs_sample, ...]
         accumulator["params"].update({
-            "PI": PI,
-            "LOR": LOR,
-            "LRR": LRR,
-            "ME": ME,
+            "PI": PI
         })
-        if not(using_clone_features):
-            accumulator["params"]["subclone_features"] = subclone_features
+        if compute_feature_importance:
+            accumulator["importance_features"] = {
+                "PI": PI,
+                "LOR": LOR,
+                "LRR": LRR,
+                "ME": ME,
+            }
+            if not(using_clone_features):
+                accumulator["importance_features"]["subclone_features"] = subclone_features
         return accumulator
 
     def save_results(
@@ -211,7 +220,95 @@ class PosteriorSampler:
             Prefix for output file names.
         """
         if sample_names is None:
-            sample_names = list(range(data["N"]))
+            sample_names = self._model.sample_names
+
+        if "importance_features" in results.keys():
+            self.save_results_importance_features(results["importance_features"], results["params"]["beta"], dir_save, data, model_name, sample_names = sample_names)
+
+        path = os.path.join(dir_save, f"{model_name}_posterior_sample.npz")
+        arrays = {}
+        metadata = {}
+
+        def _to_python_scalar(x):
+            if isinstance(x, np.generic):  # catches np.int64, np.float32, etc.
+                return x.item()
+            return x
+    
+        for group, d in results.items():  # "params", "data"
+            for k, v in d.items():
+                key = f"{group}::{k}"
+    
+                if torch.is_tensor(v):
+                    arrays[key] = v.detach().cpu().numpy()
+    
+                elif isinstance(v, np.ndarray):
+                    arrays[key] = v
+    
+                else:
+                    metadata[key] = _to_python_scalar(v)
+    
+        arrays["_metadata"] = np.array(json.dumps(metadata))
+    
+        np.savez(path, **arrays)
+
+
+    def load_results(self, path, to_torch=False, device=None):
+        data = np.load(path, allow_pickle=False)
+    
+        obj = {"params": {}, "data": {}}
+    
+        metadata = json.loads(str(data["_metadata"]))
+    
+        # load metadata
+        for key, v in metadata.items():
+            group, name = key.split("::", 1)
+            obj[group][name] = v
+    
+        # load arrays
+        for k in data.files:
+            if k == "_metadata":
+                continue
+    
+            group, name = k.split("::", 1)
+            arr = data[k]
+    
+            if to_torch:
+                arr = torch.tensor(arr, device=device)
+    
+            obj[group][name] = arr
+    
+        return obj
+            
+        
+
+    
+    def save_results_importance_features(
+        self,
+        results: dict,
+        beta: torch.Tensor,
+        *,
+        dir_save: str,
+        data: dict,
+        sample_names: list | None = None,
+        model_name: str = "",
+    ) -> None:
+        """Persist posterior statistics to HDF5 files.
+
+        Parameters
+        ----------
+        results:
+            Output of :meth:`sample`.
+        dir_save:
+            Directory where HDF5 files are written.
+        data:
+            Original data dictionary (supplies ``Kmax``, ``D``, masks, …).
+        sample_names:
+            Names for the sample axis.  Defaults to ``[0, 1, …, N-1]``.
+        model_name:
+            Prefix for output file names.
+        """
+        if sample_names is None:
+            sample_names = self._model.sample_names
 
         mask        = self._get_output_mask(data)
         latent_dim  = results["ME"].shape[-1]
@@ -272,10 +369,8 @@ class PosteriorSampler:
 
     def _draw_latent(self, params: dict) -> torch.Tensor:
         """Draw one sample from the fitted guide."""
-        if self._guide is not None and hasattr(self._guide, "sample_latent"):
-            return self._guide.sample_latent()
-        if self._guide_distribution is not None:
-            return self._guide_distribution.sample()
+        if self._guide is not None:
+            return self._guide.sample()
         raise RuntimeError(
             "Cannot draw latent samples: guide has no `sample_latent` and "
             "no `guide_distribution` was provided."

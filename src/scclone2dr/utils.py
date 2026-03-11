@@ -99,11 +99,12 @@ def load_from_sampling(data, data_samp):
         data['n_r'] = data_samp['n_r']
     except:
         pass
-    data['n_rna'] = torch.tensor(data_samp['n_rna'])
-    for i in range(data['N']):
-        for k in range(data['Kmax']):
-            if data['n_rna'][k,i]<0.5:
-                data['n_rna'][k,i] = 1.
+    if data['n_rna'] is not None:
+        data['n_rna'] = torch.tensor(data_samp['n_rna'])
+        for i in range(data['N']):
+            for k in range(data['Kmax']):
+                if data['n_rna'][k,i]<0.5:
+                    data['n_rna'][k,i] = 1.
 
     N = data['n0_r'].shape[2]
     data['frac_r'] = 1. - data['n0_r']/data['n_r']
