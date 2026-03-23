@@ -126,7 +126,7 @@ This project is licensed under the BSD 3-Clause License - see the [LICENSE](LICE
 
 ## Contact
 
-Quentin Duchemin - qduchemin9@gmail.com
+Quentin Duchemin - quentin.duchemin@epfl.ch
 
 Project Link: [https://github.com/cbg-ethz/scClone2DR](https://github.com/cbg-ethz/scClone2DR)
 
