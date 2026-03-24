@@ -218,7 +218,7 @@ scClone2DR/
 
 ---
 
-## Documentation
+## Tutorial
 
 For tutorials and examples:  [Tutorial Notebook](notebooks/tutorial_scClone2DR.ipynb)
 
