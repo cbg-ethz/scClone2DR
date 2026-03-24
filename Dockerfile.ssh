@@ -1,0 +1,48 @@
+FROM mcr.microsoft.com/devcontainers/python:3.10
+
+# 1. Install SSH server along with your other system dependencies
+# Install system dependencies AND SSH in one go
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    libhdf5-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    pkg-config \
+    gfortran \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure SSH - we use 'mkdir -p' and check if files exist to prevent exit code 1
+RUN mkdir -p /var/run/sshd && \
+    echo 'root:root' | chpasswd && \
+    if [ -f /etc/ssh/sshd_config ]; then \
+        sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config; \
+        sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config; \
+    fi && \
+    if [ -f /etc/pam.d/sshd ]; then \
+        sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd; \
+    fi
+
+# Install PyTorch CPU-only build
+RUN pip install --no-cache-dir \
+    torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+
+RUN pip install --no-cache-dir pyro-ppl>=1.8.0
+
+RUN pip install --no-cache-dir numpy==1.26.4 scipy pandas matplotlib
+
+# Install the rest of the scientific Python stack
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+WORKDIR /workspaces/scClone2DR
+COPY . .
+RUN pip install --no-cache-dir -e ".[notebook]"
+
+RUN pip install --no-cache-dir "numpy<2.0.0" scipy pandas matplotlib
+
+# 3. Expose the SSH port (purely for documentation)
+EXPOSE 22
+
+# 4. Start the SSH daemon by default
+CMD ["/usr/sbin/sshd", "-D"]
