@@ -56,8 +56,9 @@ The easiest way to use **scClone2DR** is via a **VS Code Dev Container**:
    - [Visual Studio Code](https://code.visualstudio.com/)
    - [Docker](https://www.docker.com/) running
    - VS Code **Dev Containers** extension installed
+   - Cloned this repository 
 
-2. Open your project folder (the folder containing `.devcontainer/` and `notebooks/`) in VS Code.
+2. Open the project folder (the folder containing `.devcontainer/` and `notebooks/`) in VS Code.
 
 3. Press **Ctrl+Shift+P** (or Cmd+Shift+P on macOS) → search **Dev Containers: Reopen in Container** → press Enter.
 
