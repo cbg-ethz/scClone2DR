@@ -44,9 +44,32 @@
 
 ## Installation
 
-You can install **scClone2DR** either from source or by using pre-built Docker images.
+You can install **scClone2DR** in three ways. We **recommend using the VS Code Dev Container** for the easiest and most reproducible workflow.
 
-### Option 1 — Install from source
+---
+
+### Option 1 — Use VS Code Dev Container (recommended)
+
+The easiest way to use **scClone2DR** is via a **VS Code Dev Container**:
+
+1. Make sure you have:
+   - [Visual Studio Code](https://code.visualstudio.com/)
+   - [Docker](https://www.docker.com/) running
+   - VS Code **Dev Containers** extension installed
+
+2. Open your project folder (the folder containing `.devcontainer/` and `notebooks/`) in VS Code.
+
+3. Press **Ctrl+Shift+P** (or Cmd+Shift+P on macOS) → search **Dev Containers: Reopen in Container** → press Enter.
+
+4. VS Code will:
+   - Pull the `quentinduchemin/scclone2dr` Docker image if necessary  
+   - Mount your project folder into the container at `/workspace`  
+   - Open a fully configured environment with Python, Jupyter, and all dependencies ready  
+
+5. You can now open notebooks in `notebooks/` directly inside VS Code and run scClone2DR without additional setup.
+
+
+### Option 2 — Install from source
 
 ```bash
 git clone https://github.com/cbg-ethz/scClone2DR
@@ -55,7 +78,7 @@ pip install -e .
 pip install -e .[notebook]
 ```
 
-### Option 2 — Use Docker (recommended for reproducibility)
+### Option 3 — Use Docker without VSCode
 
 Pre-built Docker images are available on Docker Hub:
 
