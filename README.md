@@ -65,10 +65,12 @@ The easiest way to use **scClone2DR** is via a **VS Code Dev Container**:
 4. VS Code will:
    - Pull the `quentinduchemin/scclone2dr` Docker image if necessary  
    - Mount your project folder into the container at `/workspace`  
-   - Open a fully configured environment with Python, Jupyter, and all dependencies ready  
+   - Open a fully configured environment with Python, Jupyter, and all dependencies ready
+  You have now a python environment working to use scClone2DR.
 
-5. You can now open notebooks in `notebooks/` directly inside VS Code and run scClone2DR without additional setup.
-
+5. You can open folder `notebooks/` directly inside VS Code and run:
+    1) first the notebook [generate_fake_data](notebooks/generate_fake_data.ipynb) to generate data that mimicking the real data used in our paper (in particular Fast Drug Pharmacoscopy data and single-cell RNA data).
+    2) then the notebook [tutorial_scClone2DR](notebooks/tutorial_scClone2DR.ipynb) to get familiar with scClone2DR by training a model and visualizing results on the single-cell data generated at step 1.
 
 ### Option 2 — Install from source
 
