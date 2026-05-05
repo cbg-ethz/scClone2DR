@@ -15,12 +15,12 @@ def scatter_score(data_train, data_test,means_train, means_test, show_test=True,
     if not(show_train):
         name='test'
     else:
-        ax.scatter(data_train['log_scores'].reshape(-1), means_train.reshape(-1), c='orange', marker='.', label='Training samples')
+        ax.scatter(data_train['log_scores'].reshape(-1), means_train.reshape(-1), c='orange', marker='.', label='Samples')
 
     if not(show_test):
         name='train'
     else:
-        ax.scatter(data_test['log_scores'].reshape(-1), means_test.reshape(-1), c='blue', marker='x', alpha=0.2, label='Test samples')
+        ax.scatter(data_test['log_scores'].reshape(-1), means_test.reshape(-1), c='blue', marker='x', alpha=0.2, label='Samples')
 
     lims = [
         np.min([ax.get_xlim(), ax.get_ylim()]),  # min of both axes
@@ -120,7 +120,7 @@ def show_cells(data, data_sample):
             plt.scatter(lsids, data['n0_c'][c,lsids], c='orange', marker = "x")
     plt.legend()
     #plt.title('Control wells', fontsize=13)
-    plt.xlabel('Test samples', fontsize=13)
+    plt.xlabel('Samples', fontsize=13)
     plt.title('Number of healthy cells in control wells', fontsize=13)
     plt.show()
     
@@ -166,7 +166,7 @@ def show_fractions(data, data_sample, idxdrug=0):
             plt.scatter(lsids, Y_c[c,lsids], c='orange', marker = "x")
     plt.legend()
     plt.title('Control wells', fontsize=13)
-    plt.xlabel('Training Samples', fontsize=13)
+    plt.xlabel('Samples', fontsize=13)
     plt.ylabel('Fraction of tumor cells', fontsize=13)
     plt.show()
     
@@ -180,7 +180,7 @@ def show_fractions(data, data_sample, idxdrug=0):
             plt.scatter(lsids, Y_r[r,lsids], c='orange', marker = "x")
     plt.legend()
     plt.title('Wells with drug', fontsize=13)
-    plt.xlabel('Training samples', fontsize=13)
+    plt.xlabel('Samples', fontsize=13)
     plt.ylabel('Fraction of tumor cells', fontsize=13)
     plt.show()
 
@@ -593,7 +593,7 @@ def survival_probabilities_relative(data, ratio_pi, pi, cluster2clonelabel, df_i
 def survival_probabilities(data, pi, cluster2clonelabel, df_info_cohort=None, idxdrug=0, drug_name=None, clustername='subclone', savefig=None):
     # Comparing true survival probabilities and the one estimated
     
-    label2name = {'healthy':'Non-malignant', 'tumor':'Tumor'}
+    label2name = {'healthy':'Non-malignant', 'tumor':'Tumor', 'putative': 'Putatitive tumor'}
     
     for d in range(data['D']):
         pi[d,:,:][~(data['masks']['RNA'])] = float('nan')
@@ -819,4 +819,3 @@ def get_colors(color_mode, data_train):
     return colors
 
 ####### END: fraction of melanoma cells
-
