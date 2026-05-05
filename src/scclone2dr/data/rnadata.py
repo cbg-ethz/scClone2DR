@@ -17,8 +17,8 @@ class RNAData():
         if not(path_rna is None):
             self.dfclones = pd.read_csv(self.path_rna+'clone_infos.csv', index_col=0)
             self.Kmax = self.dfclones.shape[0]
-            self.sample_names = [self.get_sampleID_from_file(file) for file in os.listdir(os.path.join(self.path_rna, 'sample2data'))]
-            self.sample2rna_files = {self.get_sampleID_from_file(file):file for file in os.listdir(os.path.join(self.path_rna, 'sample2data'))}
+            self.sample_names = [self.get_sampleID_from_file(file) for file in os.listdir(os.path.join(self.path_rna, 'sample2data')) if '.csv' in file]
+            self.sample2rna_files = {self.get_sampleID_from_file(file):file for file in os.listdir(os.path.join(self.path_rna, 'sample2data')) if '.csv' in file}
             
 
     def get_sampleID_from_file(self, file):
