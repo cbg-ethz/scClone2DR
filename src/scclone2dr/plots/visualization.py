@@ -593,7 +593,7 @@ def survival_probabilities_relative(data, ratio_pi, pi, cluster2clonelabel, df_i
 def survival_probabilities(data, pi, cluster2clonelabel, df_info_cohort=None, idxdrug=0, drug_name=None, clustername='subclone', savefig=None):
     # Comparing true survival probabilities and the one estimated
     
-    label2name = {'healthy':'Non-malignant', 'tumor':'Tumor', 'putative': 'Putatitive tumor'}
+    label2name = {'healthy':'Non-malignant', 'tumor':'Tumor', 'putative': 'Putative tumor'}
     
     for d in range(data['D']):
         pi[d,:,:][~(data['masks']['RNA'])] = float('nan')
