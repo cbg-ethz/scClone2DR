@@ -278,7 +278,11 @@ class scClone2DR:
             proportions_loaded = data["proportions"][idxs_sample, :]
             theta_fd_loaded    = data["theta_fd"][idxs_sample]
 
-        pi          = self.get_survival_probas(data, params)
+        if "pi" not in params:
+            pi          = self.get_survival_probas(data, params)
+        else:
+            pi = params["pi"]
+
         proportions = (
             proportions_loaded / torch.sum(proportions_loaded, dim=1).unsqueeze(1)
         ).T[:, -N:]
@@ -355,13 +359,18 @@ class scClone2DR:
             n_rna = None
         return n_rna
 
-    def _sample_control_wells(self, data, proportions, theta_fd, C, beta_control):
+
+    def _get_nu_healthy_control(self, data, beta_control):
         if self.mode_nu == NuMode.FIXED:
             nu_tumor_over_nu_healthy = torch.tensor(1)
             nu_healthy_c = 1. / (1 + nu_tumor_over_nu_healthy)
         elif self.mode_nu == NuMode.NOISE_CORRECTION:
             nu_tumor_over_nu_healthy = torch.exp(data['X_nu_control'] @ beta_control)
             nu_healthy_c = 1. / (1 + nu_tumor_over_nu_healthy)
+        return nu_healthy_c
+    
+    def _sample_control_wells(self, data, proportions, theta_fd, C, beta_control):
+        nu_healthy_c = self._get_nu_healthy_control(data, beta_control)
 
         n0_c = pyro.sample(
             'n0_c',
@@ -375,13 +384,18 @@ class scClone2DR:
         frac_c = 1. - n0_c / data['n_c']
         return nu_healthy_c, n0_c, frac_c
     
-    def _sample_drug_wells(self, data, proportions, pi, theta_fd, Ndrug, R, D, beta_control):
+
+    def _get_nu_healthy_drug(self, data, beta_control):
         if self.mode_nu == NuMode.FIXED:
             nu_tumor_over_nu_healthy = torch.tensor(1)
             nu_healthy_drug = 1. / (1 + nu_tumor_over_nu_healthy)
         elif self.mode_nu == NuMode.NOISE_CORRECTION:
             nu_tumor_over_nu_healthy = torch.exp(data['X_nu_drug'] @ beta_control)
             nu_healthy_drug = 1. / (1 + nu_tumor_over_nu_healthy)
+        return nu_healthy_drug
+
+    def _sample_drug_wells(self, data, proportions, pi, theta_fd, Ndrug, R, D, beta_control):
+        nu_healthy_drug = self._get_nu_healthy_drug(data, beta_control)
 
         if 'not' in self.mode_theta:
             theta_fd_mode = theta_fd[:Ndrug]
@@ -643,8 +657,8 @@ class scClone2DR:
                 pyro.sample(
                     "n0_c",
                     dist.BetaBinomial(
-                        (theta_fd * torch.sum(proportions[self.cat2clusters["healthy"], :], dim=0)).unsqueeze(0).repeat(C, 1) * nu_healthy,
-                        (theta_fd * torch.sum(proportions[self.cat2clusters["tumor"],   :], dim=0)).unsqueeze(0).repeat(C, 1) * (1 - nu_healthy),
+                        (theta_fd * torch.sum(proportions[self.cat2clusters["healthy"], :], dim=0)).unsqueeze(0).repeat(C, 1) * nu_healthy + 1e-6,
+                        (theta_fd * torch.sum(proportions[self.cat2clusters["tumor"],   :], dim=0)).unsqueeze(0).repeat(C, 1) * (1 - nu_healthy) + 1e-6,
                         data["n_c"],
                     ),
                     obs=data["n0_c"],
@@ -687,12 +701,12 @@ class scClone2DR:
                 dist.BetaBinomial(
                     (theta_fd_m * torch.sum(
                         proportions[self.cat2clusters["healthy"], :Ndrug].unsqueeze(0).repeat(D, 1, 1)
-                        * pi[:, self.cat2clusters["healthy"], :],
+                        * pi[:, self.cat2clusters["healthy"], :] + 1e-6,
                         dim=1,
                     )).unsqueeze(0).repeat(R, 1, 1) * nu_healthy,
                     (theta_fd_m * torch.sum(
                         proportions[self.cat2clusters["tumor"], :Ndrug].unsqueeze(0).repeat(D, 1, 1)
-                        * pi[:, self.cat2clusters["tumor"], :],
+                        * pi[:, self.cat2clusters["tumor"], :] + 1e-6,
                         dim=1,
                     )).unsqueeze(0).repeat(R, 1, 1) * (1 - nu_healthy),
                     data["n_r"],

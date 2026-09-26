@@ -94,7 +94,7 @@ class FM_sc(BaseDataset, ModelEvaluator):
             for k in range(Kmax):
                 vec_proportions.append(proportions[i,k])
                 if not(true_params is None):
-                    vec_true_proportions.append(data['proportions'][-N:,:][i,k])
+                    vec_true_proportions.append(true_params['proportions'][-N:,:][i,k])
                 indexes_subclones.append(i)
         vec_proportions = torch.tensor(vec_proportions)
         vec_true_proportions = torch.tensor(vec_true_proportions)
@@ -124,23 +124,12 @@ class FM_sc(BaseDataset, ModelEvaluator):
         pi = deepcopy(ratios_pi)
         D, Kmax, N = pi.shape
 
+        for d in range(D):
+            for i in range(N):
+                pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
 
-        self.r = self.compute_all(data, {'pi':pi, 'proportions':proportions}, true_params=true_params)
-
-        if not(true_params is None):
-            for d in range(D):
-                for i in range(N):
-                    pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
-            self.kl_survival_probas(true_params, {'pi':pi})
-            self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
-            self.spearman_drug(true_params, data, params={'pi':ratios_pi})
-            self.drug_effects({'pi':ratios_pi, 'proportions':proportions}, true_params=true_params)
-            self.spearman_subclone(true_params, data, params={'pi':ratios_pi})
-        
-        self.pi = pi
-        self.proportions = proportions
-        self.results['fold_change_pred'] = (fold_change_pred).numpy()
-        self.results['fold_change_obs'] = self.get_fold_change_obs(data)
+        self.r = self.compute_all(data, {'pi':pi, 'proportions':proportions}, true_params=true_params, fold_change=False)
+        self.r.fold_change_pred = fold_change_pred
 
 
     def train(self, data_train, nb_epochs=1000, lr=0.1, verbose=False):

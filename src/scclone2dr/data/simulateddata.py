@@ -161,6 +161,10 @@ class SimulatedData(BaseDataset):
         else:
             params["pi"] = model.compute_survival_probas_subclone_features(data_train, params)
 
+
+        params['nu_healthy_drug'] = model._get_nu_healthy_drug(data_train, params['beta_control'])
+        params['nu_healthy_control'] = model._get_nu_healthy_control(data_train, params['beta_control'])
+
         return data_train, params
 
     # ------------------------------------------------------------------
@@ -279,6 +283,13 @@ class SimulatedData(BaseDataset):
         if "pi" in params.keys():
             params_train['pi'] = params['pi'][:,:,idxs_train]
             params_test['pi'] = params['pi'][:,:,idxs_test]
+
+        if "nu_healthy" in params:
+            params_train["nu_healthy_control"] = params["nu_healthy_control"][:, idxs_train]
+            params_test["nu_healthy_control"] = params["nu_healthy_control"][:, idxs_test]
+
+            params_train["nu_healthy_drug"]  = params["nu_healthy_drug"][:, :, idxs_train]
+            params_test["nu_healthy_drug"]  = params["nu_healthy_drug"][:, :, idxs_test]
         return params_train, params_test
 
     # ------------------------------------------------------------------

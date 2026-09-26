@@ -94,15 +94,20 @@ class NN_sc(BaseDataset, ModelEvaluator):
             for d in range(D):
                 for i in range(Ndrug):
                     pi[d,:,i] *= torch.sum(true_params['pi'][d,:,i]) / torch.sum(pi[d,:,i])
-            self.kl_survival_probas(true_params, {'pi':pi})
-            self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
-            self.spearman_drug(true_params, data, params={'pi':pi})
-            self.drug_effects({'pi':pi, 'proportions':proportions}, true_params=true_params)
-            self.spearman_subclone(true_params, data, params={'pi':pi})
-        self.pi = pi
-        self.proportions = proportions
-        self.results['fold_change_pred'] = (fold_change_pred).numpy()
-        self.results['fold_change_obs'] = self.get_fold_change_obs(data)
+
+
+        self.r = self.compute_all(data, {'pi':pi, 'proportions':proportions}, true_params, fold_change=False)
+        self.r.fold_change_pred = fold_change_pred
+
+        #     self.kl_survival_probas(true_params, {'pi':pi})
+        #     self.overall_survival_error(true_params, {'pi':pi, 'proportions':proportions})
+        #     self.spearman_drug(true_params, data, params={'pi':pi})
+        #     self.drug_effects({'pi':pi, 'proportions':proportions}, true_params=true_params)
+        #     self.spearman_subclone(true_params, data, params={'pi':pi})
+        # self.pi = pi
+        # self.proportions = proportions
+        # self.results['fold_change_pred'] = (fold_change_pred).numpy()
+        # self.results['fold_change_obs'] = self.get_fold_change_obs(data)
 
     def train(self, data_train, nb_epochs=1000, lr=0.01, verbose=False):
         """

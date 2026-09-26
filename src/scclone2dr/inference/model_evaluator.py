@@ -406,7 +406,7 @@ class ModelEvaluator(BaseModelEvaluator):
         data: dict,
         params: dict,
         true_params: dict = None,
-        fold_change: nool = True
+        fold_change: bool = True
     ) -> Results:
         """Compute every available metric and return a :class:`Results`.
 
@@ -664,11 +664,11 @@ class ModelEvaluator(BaseModelEvaluator):
 
         if true_params is not None:
             data_true   = merge_data_params(data, true_params)
-            _, DIC_true = self.over_sample(data_true, multi_C=1, multi_R=1)
-            DIC_true    = load_from_sampling(DIC_true, data)  # noqa: F821
-            preds_drugs_true  = 1.0 - self._model.get_mean_fracMEL_treated(data_true["proportions"].T, D, DIC_true["pi"], DIC_true["nu_healthy_drug"])
-            preds_c4drugs_true = 1.0 - self._model.get_mean_fracMEL_treated(data_true["proportions"].T, D, torch.ones_like(DIC_true["pi"]), DIC_true["nu_healthy_drug"])
-            preds_c_true      = 1.0 - self._model.get_mean_fracMEL_control(data_true["proportions"].T, data_true["C"], DIC_true["nu_healthy_control"])
+            # _, DIC_true = self.over_sample(data_true, multi_C=1, multi_R=1)
+            # DIC_true    = load_from_sampling(DIC_true, data)  # noqa: F821
+            preds_drugs_true  = 1.0 - self._model.get_mean_fracMEL_treated(data_true["proportions"].T, D, data_true["pi"], data_true["nu_healthy_drug"])
+            preds_c4drugs_true = 1.0 - self._model.get_mean_fracMEL_treated(data_true["proportions"].T, D, torch.ones_like(data_true["pi"]), data_true["nu_healthy_drug"])
+            preds_c_true      = 1.0 - self._model.get_mean_fracMEL_control(data_true["proportions"].T, data_true["C"], data_true["nu_healthy_control"])
             modes.append("true")
 
         _stat_fn = {

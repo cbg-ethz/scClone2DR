@@ -10,11 +10,12 @@ import copy
 
 class RealData(BaseDataset):
 
-    def __init__(self, path_fastdrug=None, path_rna=None, path_info_cohort=None, concentration_drug=None):
+    def __init__(self, path_fastdrug=None, path_rna=None, path_info_cohort=None, concentration_drug=None, sample_names=None):
         super(BaseDataset, self).__init__()
         self.RNA = RNAData(path_rna)
         self.FD = FastDrug(path_fastdrug, samples = self.RNA.sample_names, concentration_drug = concentration_drug)
-        sample_names = np.intersect1d(self.RNA.sample_names, self.FD.sample_names)
+        if sample_names is None:
+            sample_names = np.intersect1d(self.RNA.sample_names, self.FD.sample_names)            
         self.sample_names = sample_names
         self.drugs = self.FD.selected_drugs
         if not(path_rna is None):
