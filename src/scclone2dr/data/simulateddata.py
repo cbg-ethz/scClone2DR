@@ -284,10 +284,10 @@ class SimulatedData(BaseDataset):
             params_train['pi'] = params['pi'][:,:,idxs_train]
             params_test['pi'] = params['pi'][:,:,idxs_test]
 
-        if "nu_healthy" in params:
+        if "nu_healthy_control" in params:
             params_train["nu_healthy_control"] = params["nu_healthy_control"][:, idxs_train]
             params_test["nu_healthy_control"] = params["nu_healthy_control"][:, idxs_test]
-
+        if "nu_healthy_drug" in params:
             params_train["nu_healthy_drug"]  = params["nu_healthy_drug"][:, :, idxs_train]
             params_test["nu_healthy_drug"]  = params["nu_healthy_drug"][:, :, idxs_test]
         return params_train, params_test

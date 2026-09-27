@@ -672,7 +672,7 @@ class ModelEvaluator(BaseModelEvaluator):
             modes.append("true")
 
         _stat_fn = {
-            "mannwhitneyu": lambda a, b: scipy_stats.mannwhitneyu(np.log(a), np.log(b)),
+            "mannwhitneyu":  lambda a, b: scipy_stats.mannwhitneyu(np.log(a), np.log(b)),
             "t_test":        lambda a, b: scipy_stats.ttest_ind(np.log(a), np.log(b)),
             "Welch":         lambda a, b: scipy_stats.ttest_ind(np.log(a), np.log(b), equal_var=False),
         }
